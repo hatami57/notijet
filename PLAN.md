@@ -96,8 +96,8 @@ type Provider interface {
 
 - [x] **0. Plan and scaffold** — git repo, `go.mod` against `../microjet`,
   `.gitignore`, this plan.
-- [ ] **1. Core** — `Message`, `Result`, `Provider`, channels, validation,
-  errors, `internal/httpc` (shared HTTP helper), `internal/mime` (MIME builder
+- [x] **1. Core** — `Message`, `Result`, `Provider`, channels, validation,
+  errors, `internal/httpc` (shared HTTP helper), `internal/mimex` (MIME builder
   shared by SMTP, Gmail API and SES raw), `phone` package. Tests.
 - [ ] **2. Notifier and decorators** — `Notifier`, `Failover`, `Retry`, hooks,
   `memory` and `logger` providers. Tests.
@@ -124,3 +124,68 @@ type Provider interface {
 - Step 0 — repository created; plan written. Provider APIs checked against
   official docs/SDKs (Kavenegar REST docs, Melipayamak docs, IPPanel Go SDK,
   Ghasedak PHP SDK, SMS.ir TypeScript SDK).
+- Step 1 — core done:
+  - `notijet.go`: `Provider`, `Channel`, `Message` (+ `Validate`, `Clone`,
+    `Recipients`, `HasBody`), `Template`/`Param` (`NewTemplate`, `Get`,
+    `Values`, `Map`), `Attachment`, `Result`/`Receipt`, `DefaultHTTPClient`,
+    `CleanList`.
+  - `errors.go`: sentinels (`ErrUnauthorized`, `ErrInsufficientCredit`,
+    `ErrInvalidRecipient`, `ErrInvalidSender`, `ErrTemplate`, `ErrRateLimited`,
+    `ErrUnsupported`, `ErrNoProvider`); constructors `Invalid`,
+    `InvalidRecipient`, `InvalidSender`, `Unsupported` (400), `Rejected` (409),
+    `Throttled`, `Fault`, `FaultCode` (500); `IsRetryable`, `ProviderCode`. The
+    provider's own code is the `providerCode` param.
+  - `check.go`: `CheckSMS`, `CheckEmail`, `CheckChat`, `TextOrTemplate`.
+    Convention: a message may carry both `Template` and fallback `Text`;
+    template-capable providers send the template, others send `Text`, so a
+    `Failover` across both kinds works.
+  - `internal/httpc`: `Client.Do` returns 2xx/4xx replies for the provider to
+    interpret; transport errors / 5xx → `Fault`, 429 → `Throttled`; URLs are
+    stripped from transport errors (API keys live in some providers' paths).
+    `Decode`, `Unexpected`, `JSON`/`Form`/`NewRequest` builders, `BasicAuth`.
+  - `internal/mimex`: `Build(provider, msg, Options{From, IncludeBCC, Date,
+    MessageIDDomain})` → bare `From`, envelope `Recipients`, `MessageID`,
+    CRLF `Bytes`; mixed/related/alternative structure, QP text, wrapped base64
+    attachments, header-injection and reserved-header checks; `ParseAddress`,
+    `ParseAddressList`.
+  - `phone`: `EnglishDigits`, `Clean`, `IranMobile`, `IsIranMobile`, `E164`,
+    `International`, `IranLocalOrInternational`.
+  - `go vet` and `go test -race ./...` pass.
+
+## Next up: step 2
+
+Build `notifier.go` (named providers, default provider per channel, hooks,
+slog logging), decorators `Failover`, `Retry` (uses `IsRetryable`, exponential
+backoff with jitter, honours ctx), `WithHooks`, then `memory` (captures sent
+messages; scriptable failures) and `logger` (slog) providers, with tests.
+
+## Provider API notes (verified during step 0)
+
+- Kavenegar: `https://api.kavenegar.com/v1/{API-KEY}/sms/send.json` (receptor
+  comma-separated ≤200, message, sender, localid) and `verify/lookup.json`
+  (receptor, token, token2, token3, token10, token20, template, type=sms|call).
+  Reply `{"return":{"status":200,"message":""},"entries":[{"messageid","status",
+  "statustext","receptor","cost"}]}`; errors use HTTP status = return.status:
+  401/403 credentials, 411 receptor, 412 sender, 418 credit, 424/431/432
+  template, 409 server busy (retry), 451 rate limit.
+- SMS.ir: base `https://api.sms.ir`, header `X-API-KEY`; `POST /v1/send/bulk`
+  `{lineNumber, messageText, mobiles[], sendDateTime?}` → `data{packId,
+  messageIds[], cost}`; `POST /v1/send/verify` `{mobile, templateId(int),
+  parameters:[{name,value}]}` → `data{messageId, cost}`. Envelope
+  `{status, message, data}`, status 1 = success.
+- Melipayamak REST: `https://rest.payamak-panel.com/api/SendSMS/SendSMS` form
+  (username, password, to, from, text, isFlash) and `.../BaseServiceNumber`
+  (username, password, to, bodyId, text = args joined by `;`). Reply
+  `{"Value","RetStatus","StrRetStatus"}`; RetStatus 1 = ok and Value = recId
+  (long); short/negative Value is an error code (0 credentials, 2 credit,
+  5 sender, 7 filtered words, 10 inactive, 18 recipient, -4 bodyId, ...).
+- Ghasedak: base `https://gateway.ghasedak.me/rest/api/v1/WebService`, header
+  `ApiKey`; `POST /SendSingleSMS` `{sendDate, lineNumber, receptor, message,
+  clientReferenceId, udh}`; `POST /SendOtpSMS` `{sendDate, receptors:[{mobile,
+  clientReferenceId}], templateName, inputs:[{param, value}], udh, isVoice}`.
+  Envelope `{isSuccess, statusCode, message, data}`; single data has
+  `messageId, receptor, cost`; OTP data `{items:[...], totalCost}`.
+- IPPanel (FarazSMS etc.): base `https://api2.ippanel.com/api/v1`, header
+  `Apikey`; `POST /sms/send/webservice/single` `{sender, recipient[], message,
+  description}`; `POST /sms/pattern/normal/send` `{code, sender, recipient,
+  variable{}}`. Envelope `{status, code, error_message, data{message_id}}`.
