@@ -99,7 +99,7 @@ type Provider interface {
 - [x] **1. Core** — `Message`, `Result`, `Provider`, channels, validation,
   errors, `internal/httpc` (shared HTTP helper), `internal/mimex` (MIME builder
   shared by SMTP, Gmail API and SES raw), `phone` package. Tests.
-- [ ] **2. Notifier and decorators** — `Notifier`, `Failover`, `Retry`, hooks,
+- [x] **2. Notifier and decorators** — `Notifier`, `Failover`, `Retry`, hooks,
   `memory` and `logger` providers. Tests.
 - [ ] **3. Iranian SMS providers** — kavenegar, smsir, melipayamak, ghasedak,
   ippanel. Tests against `httptest` servers.
@@ -151,13 +151,40 @@ type Provider interface {
   - `phone`: `EnglishDigits`, `Clean`, `IranMobile`, `IsIranMobile`, `E164`,
     `International`, `IranLocalOrInternational`.
   - `go vet` and `go test -race ./...` pass.
+- Step 2 — notifier and decorators done:
+  - `notifier.go`: `NewNotifier(WithLogger)`, `Register(name, p)` (empty name
+    = `p.Name()`; first provider per channel becomes the default),
+    `MustRegister`, `SetDefault(name)`, `AddHooks`, `Provider`, `Default`,
+    `Names`, `Send(ctx, channel, msg)`, `SendVia(ctx, name, msg)`. Logs
+    successes at Debug and failures at Warn with provider/channel/recipient
+    count/duration only — never recipients or content. Unknown name/channel →
+    400 matching `ErrNoProvider`.
+  - `hooks.go`: `Hooks{BeforeSend, AfterSend}`, `SendEvent`, `WithHooks(p, h)`.
+    BeforeSend adjusts a clone of the message and can abort; AfterSend runs on
+    every outcome. A provider returning `(nil, nil)` yields a `Result` naming it.
+    (Plain hooks instead of a separate middleware type: decorators are just
+    `func(Provider) Provider` values the caller composes.)
+  - `failover.go`: `Failover(providers...)` tries in order, moves on after any
+    error, stops when ctx is done; `Result.Provider` names the winner. When more
+    than one fails it returns `*FailoverError{Errors}`, which unwraps to the
+    first retryable error (else the last) so `IsRetryable`/category reflect it.
+  - `retry.go`: `Retry(p, RetryAttempts, RetryBackoff, RetryIf)`; defaults 3
+    attempts, 1s doubling to 30s, equal jitter (½–1× the delay), stops on ctx.
+  - `memory`: records clones, validates per channel (CheckSMS/CheckEmail/
+    Validate), receipts `<name>-N`; `FailNext(errs...)` (nil = success slot),
+    `FailWith(fn)`, `Messages`, `Last`, `LastTo`, `Len`, `Calls`, `Reset`.
+  - `logger`: logs the full message (content and recipients — dev only) at a
+    configurable level and returns a random message ID.
+  - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 2
+## Next up: step 3
 
-Build `notifier.go` (named providers, default provider per channel, hooks,
-slog logging), decorators `Failover`, `Retry` (uses `IsRetryable`, exponential
-backoff with jitter, honours ctx), `WithHooks`, then `memory` (captures sent
-messages; scriptable failures) and `logger` (slog) providers, with tests.
+Iranian SMS providers `sms/kavenegar`, `sms/smsir`, `sms/melipayamak`,
+`sms/ghasedak`, `sms/ippanel`, each with `New(credentials, opts...)`,
+`WithSender`, `WithHTTPClient`, `WithBaseURL` (for tests), text + template
+sending via `notijet.CheckSMS`, phone normalization through `phone`, error-code
+mapping to the notijet sentinels per the API notes below, and `httptest`-based
+tests.
 
 ## Provider API notes (verified during step 0)
 
