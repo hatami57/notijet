@@ -103,7 +103,7 @@ type Provider interface {
   `memory` and `logger` providers. Tests.
 - [x] **3. Iranian SMS providers** — kavenegar, smsir, melipayamak, ghasedak,
   ippanel. Tests against `httptest` servers.
-- [ ] **4. International SMS providers** — twilio, vonage, plivo, infobip, sns.
+- [x] **4. International SMS providers** — twilio, vonage, plivo, infobip, sns.
   Tests.
 - [ ] **5. SMTP email** — `email/smtp` with STARTTLS / implicit TLS, PLAIN and
   LOGIN auth, presets. Tests against an in-process SMTP server.
@@ -203,14 +203,47 @@ type Provider interface {
     `error_message` or `data.error` (string or field map).
   - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 4
+- Step 4 — international SMS providers done:
+  - All take `WithDefaultCountry(code)` for national-form numbers (rejected
+    without it), send `Text` only (`CheckSMS(..., false)`; a Template needs a
+    fallback Text), and report receipts with E.164 `To`.
+  - `sms/twilio`: Messages.json per recipient, basic auth with the auth token
+    or `WithAPIKey(sid, secret)`; an `MG…` sender becomes
+    MessagingServiceSid; `WithStatusCallback`; a `failed`/`undelivered` reply
+    is an error; error codes 20003/20005/20008 auth, 21211/21214/21217/21265/
+    21408/21608/21610/21612/21614 recipient, 21212/21603/21606/21659/21660
+    sender, 20429/14107 rate limit. Error replies have a numeric `status`.
+  - `sms/vonage`: /sms/json per recipient; `type=unicode` when the text is not
+    GSM-7 (`smsutil.IsGSM7`); `client-ref` from Message.ID (≤100 chars);
+    `WithCallback`; status 1 throttled, 4/8/11/14/32 auth, 5 fault,
+    6/7/29/33 recipient, 9 credit, 15 sender; any failed part fails the send.
+  - `sms/plivo`: bulk `dst` joined by `<` (≤1000), UUID sender →
+    `powerpack_uuid`; `invalid_number` entries get receipts with status
+    "invalid"; text errors classified by wording.
+  - `sms/infobip`: account base URL required in `New`; `Authorization: App`;
+    /sms/2/text/advanced (≤1000 destinations), Message.ID → callbackData;
+    partial REJECTED destinations are receipts, all rejected → error by
+    status name (CREDIT, SENDER, DESTINATION/PREFIX/NETWORK, FLOODING).
+  - `sms/sns`: takes any `API` (`*sns.Client` satisfies it) — credentials and
+    region stay with the caller's AWS config; Publish per recipient with
+    SMSType (Transactional default), SenderID or OriginationNumber (`+…`);
+    smithy API error codes mapped; server faults retryable.
+  - Dependencies: aws-sdk-go-v2 (sns), smithy-go. Note: this machine sets
+    `GOPRIVATE=github.com/*`, so fetch public modules with
+    `GOPRIVATE='github.com/hatami57/*' GONOSUMDB='github.com/hatami57/*'`.
+  - `go vet` and `go test -race ./...` pass.
 
-International SMS providers `sms/twilio`, `sms/vonage`, `sms/plivo`,
-`sms/infobip`, `sms/sns`, same option shape as step 3, E.164 recipients via
-`phone.E164` with a `WithDefaultCountry` option, no templates (`CheckSMS(...,
-false)`), error mapping per each API's documented codes, `httptest` tests.
-Verify each API against official docs first and record the notes below. For
-SNS decide between microjet's `aws` module and a small SigV4 signer.
+## Next up: step 5
+
+`email/smtp`: `New(host, port, opts...)` with `WithAuth(user, pass)`,
+STARTTLS (587, required by default when auth is set), implicit TLS (465),
+PLAIN and LOGIN auth, `WithTLSConfig`, `WithLocalName`, presets (`Gmail`,
+`Outlook`, `Office365`, `Yahoo`, `Zoho`, `ICloud`, `Yandex`) returning
+host/port/TLS mode; message built by `internal/mimex` (BCC excluded from
+headers, included in the envelope); connection per send with ctx-aware
+dialing and deadlines; SMTP reply codes mapped (535 auth, 550/553 recipient,
+552/452 quota → retry for 4xx). Tests against an in-process fake SMTP server
+covering STARTTLS, implicit TLS, both auth mechanisms, and errors.
 
 ## Provider API notes (verified during step 0)
 

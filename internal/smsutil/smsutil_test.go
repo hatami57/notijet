@@ -34,3 +34,9 @@ func TestSenderAndFlag(t *testing.T) {
 	assert.True(t, Flag(&notijet.Message{Data: map[string]string{"x": "TRUE"}}, "x"))
 	assert.False(t, Flag(&notijet.Message{}, "x"))
 }
+
+func TestIsGSM7(t *testing.T) {
+	assert.True(t, IsGSM7("Hello, world! {€} @£$ 123\n"))
+	assert.False(t, IsGSM7("سلام"))
+	assert.False(t, IsGSM7("emoji 🙂"))
+}

@@ -48,3 +48,20 @@ func Flag(msg *notijet.Message, key string) bool {
 	}
 	return false
 }
+
+// gsm7 is the GSM 03.38 default alphabet plus its extension table: text made
+// only of these characters fits the 7-bit encoding; anything else needs UCS-2
+// (a "unicode" message).
+const gsm7 = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?" +
+	"¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà" +
+	"\f^{}\\[~]|€"
+
+// IsGSM7 reports whether s can be sent with the GSM 7-bit alphabet.
+func IsGSM7(s string) bool {
+	for _, r := range s {
+		if !strings.ContainsRune(gsm7, r) {
+			return false
+		}
+	}
+	return true
+}
