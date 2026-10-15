@@ -112,12 +112,13 @@ type Provider interface {
 - [x] **7. Chat, push and webhook providers** — telegram, bale, slack, discord,
   fcm, webhook. Tests.
 - [x] **8. Local templates** — render messages from template sets. Tests.
-- [ ] **9. microjet module, persistence and queue** — `Store` (gormx),
-  `Queue` + worker, `Module()`, config-driven provider factories. Tests on
-  SQLite.
-- [ ] **10. Examples and docs** — focused runnable examples, a microjet host
+- [x] **9. microjet module, persistence and queue** — `queue` (Store,
+  gormx DBStore, lease-based worker), `module` (host wiring). Tests on SQLite.
+- [ ] **10. Config-driven provider factories** — build providers from TOML /
+  map config (`type = "kavenegar"`), registry, `module.WithConfig`. Tests.
+- [ ] **11. Examples and docs** — focused runnable examples, a microjet host
   example, README, CHANGELOG.
-- [ ] **11. Final review** — vet, race tests, staticcheck, consistency pass.
+- [ ] **12. Final review** — vet, race tests, staticcheck, consistency pass.
 
 ## Progress log
 
@@ -375,20 +376,56 @@ Keep core types provider-neutral.
     pass through to the provider.
   - Coverage 99%; `go vet` and `go test -race ./...` pass.
 
-## Next up: step 9
+- Step 9 — persistence, queue and microjet module done:
+  - Design: core `notijet` stays free of gorm/host; `queue` (gormx) and
+    `module` (host) are separate packages. Config factories moved to a new
+    step 10 (they need a config constructor in every provider).
+  - `queue.Record` (table `notijet_messages`): ID (Message.ID or generated),
+    Channel, Provider (Via name), JSON Message, Status
+    queued/sending/sent/partial/failed, Attempts, NextAttemptAt,
+    LockedUntil, ClaimToken, SentVia, JSON Receipts, LastError, ErrorCode,
+    timestamps; `Decode`, `DecodeReceipts`, `Done`.
+  - `queue.Store` interface + `DBStore` over gormx tables (Insert joins the
+    caller's `RunTx`; existing ID → no-op, a concurrent duplicate →
+    `ErrDuplicate`). Claim = read due IDs, then one conditional UPDATE per
+    row (status/next_attempt_at or expired lease) setting a fresh
+    ClaimToken, lease and attempts+1 — no row locks, replica-safe on every
+    dialect incl. SQLite. Finish is conditional on the ClaimToken, so a
+    worker whose lease expired cannot overwrite the new owner's outcome.
+    Requeue (failed/partial → queued, attempts reset), Prune (final rows).
+  - `queue.Queue`: `Enqueue(ctx, ch, msg, Via(name), At(t))` (provider must
+    exist now; wakes Run), `Process` (one pass, `Workers(n)` in parallel,
+    each send bounded to 90% of the lease), `Run` (interval + wake-ups,
+    pass errors logged), `Get`, `Retry`. Outcomes: success → sent with
+    receipts; `PartialError` → partial (never resent); retryable and
+    attempts < MaxAttempts → queued with jittered exponential backoff;
+    otherwise failed; an unreadable stored message fails; on shutdown the
+    claim is left to expire. Options: Interval, BatchSize, Workers, Lease,
+    MaxAttempts, Backoff, Retention, WithClock, WithLogger.
+  - `module.New(WithProvider, WithDefault, WithHooks, WithQueue(opts...),
+    WithDatabase, WithStore, WithoutWorker)`: registers the Notifier (app
+    logger) and, with the queue, a `*queue.Queue` (app clock) available
+    from Register on, a setup service that connects/migrates the store,
+    and the "notijet-queue" worker. Accessors `Notifier`, `Queue`,
+    `LookupQueue`.
+  - Tests: SQLite in-memory and file DBs — transaction join/rollback,
+    two replicas delivering 60 messages exactly once, lease takeover and a
+    lost claim, a real concurrent duplicate insert, retention, shutdown,
+    host lifecycle via `app.Start`/`Shutdown`. Coverage queue 97%, module
+    99%. `go vet` and `go test -race ./...` pass.
 
-microjet module, persistence and queue. First study `../microjet` (host
-module interface, gormx, outbox, config) and `../payjet`/`../bojet`
-(`module.go`, `db_store.go`) to match their patterns. Then: `Store`
-interface + gormx implementation (sent/queued message records with status,
-attempts, provider, receipts, last error, timestamps); `Queue` that
-persists messages (joining the caller's gormx transaction) and a worker
-delivering them through a `Notifier` with retry/backoff (`IsRetryable`,
-`PartialError` → no resend) and quarantine of permanent failures;
-config-driven provider factories (`Register(type, factory)` filled by each
-provider package's `init` in a `notijet/providers` registry, or explicit
-registration to avoid import side effects — decide after studying
-microjet); `Module()` wiring. Tests on SQLite.
+## Next up: step 10
+
+Config-driven factories. Add `notijet/config`: a `Spec` (`type`, `name`,
+string settings map) and a `Registry` of `Factory func(Spec)
+(notijet.Provider, error)`; every provider package exports
+`FromConfig(map[string]string)` (or similar) built on its `New` and options,
+with typed parsing helpers (bool, int, durations, lists) and clear errors for
+unknown or missing keys. A `config/all` package registers every built-in
+provider (explicit import, no hidden init side effects in provider
+packages). `module.WithConfig` reads `[notijet.providers.<name>]` sections
+through microjet's configx and registers them; secrets via microjet secretx
+where supported. Study microjet configx/secretx first.
 
 ## Provider API notes (verified during step 0)
 
