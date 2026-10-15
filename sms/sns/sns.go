@@ -24,6 +24,7 @@ import (
 	"github.com/aws/smithy-go"
 
 	"github.com/hatami57/notijet"
+	"github.com/hatami57/notijet/internal/awsutil"
 	"github.com/hatami57/notijet/internal/smsutil"
 	"github.com/hatami57/notijet/phone"
 )
@@ -121,28 +122,16 @@ func stringAttr(v string) types.MessageAttributeValue {
 	return types.MessageAttributeValue{DataType: aws.String("String"), StringValue: aws.String(v)}
 }
 
-// mapError turns an SNS API error into a notijet error. Errors that are not
-// API errors (transport failures, cancelled contexts) are faults.
+// mapError turns an SNS error into a notijet error.
 func mapError(err error) error {
+	if mapped, _, _, done := awsutil.Classify(Name, err); done {
+		return mapped
+	}
 	var apiErr smithy.APIError
-	if !errors.As(err, &apiErr) {
-		return notijet.Fault(Name, "Publish failed", err)
-	}
+	errors.As(err, &apiErr)
 	code, message := apiErr.ErrorCode(), apiErr.ErrorMessage()
-	switch code {
-	case "AuthorizationError", "AccessDenied", "AccessDeniedException", "InvalidClientTokenId",
-		"SignatureDoesNotMatch", "UnrecognizedClientException", "ExpiredToken", "ExpiredTokenException":
-		return notijet.Rejected(Name, code, message, notijet.ErrUnauthorized)
-	case "Throttled", "Throttling", "ThrottlingException", "ThrottledException":
-		return notijet.Throttled(Name, code, message)
-	case "InvalidParameter", "InvalidParameterValue":
-		if strings.Contains(strings.ToLower(message), "phone") {
-			return notijet.Rejected(Name, code, message, notijet.ErrInvalidRecipient)
-		}
-		return notijet.Rejected(Name, code, message, nil)
-	}
-	if apiErr.ErrorFault() == smithy.FaultServer {
-		return notijet.FaultCode(Name, code, message, err)
+	if (code == "InvalidParameter" || code == "InvalidParameterValue") && strings.Contains(strings.ToLower(message), "phone") {
+		return notijet.Rejected(Name, code, message, notijet.ErrInvalidRecipient)
 	}
 	return notijet.Rejected(Name, code, message, nil)
 }

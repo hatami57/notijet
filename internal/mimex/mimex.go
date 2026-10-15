@@ -6,11 +6,11 @@ package mimex
 
 import (
 	"bytes"
-	"maps"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"

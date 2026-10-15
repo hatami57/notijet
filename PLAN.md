@@ -107,7 +107,7 @@ type Provider interface {
   Tests.
 - [x] **5. SMTP email** — `email/smtp` with STARTTLS / implicit TLS, PLAIN and
   LOGIN auth, presets. Tests against an in-process SMTP server.
-- [ ] **6. Email API providers** — gmail, ses, sendgrid, mailgun, postmark,
+- [x] **6. Email API providers** — gmail, ses, sendgrid, mailgun, postmark,
   resend, brevo. Tests.
 - [ ] **7. Chat, push and webhook providers** — telegram, bale, slack, discord,
   fcm, webhook. Tests.
@@ -274,40 +274,71 @@ validation-before-network, unexpected replies, and `providertest.RunHTTP`
 when it speaks HTTP. Verify API details against official docs before coding.
 Keep core types provider-neutral.
 
-- Step 6 — in progress (committed part way):
-  - Done: `internal/emailutil` (`Prepare` validation + address parsing,
-    `Display` UTF-8 names, `Emails`, `Receipt`); `mimex.ContentType` and
-    `mimex.CheckHeaders` exported. Fixed a `mimex` bug: an attachment whose
-    type carries parameters (`.txt` → `text/plain; charset=utf-8`) got an
-    empty Content-Type. `Build` now rejects empty header names too.
-  - Done: `email/sendgrid` (requires 202, dedupes addresses across To/CC/BCC,
-    dynamic templates, custom_args, inline cid), `email/mailgun` (multipart,
-    US/EU, template + t:variables, v: vars, inline by ContentID filename),
-    `email/postmark` (/email and /email/withTemplate by ID or alias, 50
-    recipient cap, MessageStream). Each runs `providertest.RunHTTP`.
-  - Dependency added: aws-sdk-go-v2/service/sesv2 (not yet used).
+- Step 6 — email API providers done:
+  - Shared: `internal/emailutil` (`Prepare` = `CheckEmail` + address parsing
+    + `mimex.CheckHeaders`, `Display` with UTF-8 names, `Emails`,
+    `Receipt`), `internal/awsutil` (`Classify` for non-API / auth / throttle
+    / server-fault AWS errors, `ValidTag`; `sms/sns` refactored onto it).
+    `mimex.ContentType` and `mimex.CheckHeaders` exported; fixed attachments
+    whose type has parameters (`.txt` → empty Content-Type) and empty header
+    names.
+  - `email/sendgrid`: v3 mail/send, Bearer; one personalization with
+    addresses deduplicated across To/CC/BCC; needs a To; requires HTTP 202
+    (any other 2xx is unexpected); dynamic templates (`template_id` +
+    `dynamic_template_data`); Metadata → custom_args; inline cid
+    attachments; `EUBaseURL`. Errors mapped from message/field (credits,
+    sender identity, template_id, personalizations email).
+  - `email/mailgun`: multipart form to /v3/{domain}/messages, basic auth
+    `api:key`, `EUBaseURL`; template + `t:variables`; Metadata → `v:` vars;
+    headers → `h:`; inline parts named by ContentID; 401/403 auth, 402
+    credit, 404/'from'/domain sender, 'to'/'cc'/'bcc' recipient, template.
+  - `email/postmark`: /email and /email/withTemplate (numeric ID →
+    TemplateId, else TemplateAlias); ≤50 recipients; `WithMessageStream`;
+    ErrorCode mapping 10/413/1480 auth, 400/401 sender, 405 credit, 406
+    recipient, 1101/1109/1122/1123 template, 100/101 fault.
+  - `email/resend`: /emails, ≤50 To; template {id, variables}; Metadata →
+    tags (validated); Message.ID → Idempotency-Key (≤256); 429 body read so
+    daily/monthly quota is permanent while rate_limit_exceeded is retryable;
+    concurrent_idempotent_requests retryable.
+  - `email/brevo`: /v3/smtp/email, `api-key`; numeric templateId + params;
+    single Reply-To; inline attachments unsupported; Metadata →
+    `X-Mailin-custom` ("k:v|k:v", validated, conflicts with an explicit
+    header rejected); code mapping unauthorized/permission_denied/
+    account_under_validation, not_enough_credits, document_not_found
+    (template), invalid/missing_parameter by wording.
+  - `email/ses`: sesv2 `SendEmail` behind `API`; Simple content with
+    attachments (inline → INLINE + ContentId) and headers; Template content
+    with JSON TemplateData; non-ASCII names as encoded-words, bare addresses
+    otherwise; Metadata → EmailTags; `WithConfigurationSet`; codes
+    MailFromDomainNotVerified → sender, AccountSuspended/SendingPaused →
+    auth, NotFound/"template" with a template → ErrTemplate.
+  - `email/gmail`: media upload of the mimex message (Bcc header included)
+    to /upload/gmail/v1/users/{user}/messages/send; auth via an OAuth2
+    `WithHTTPClient` or `WithToken`; `WithUser`; Google error reasons →
+    rate limits retryable, daily quota permanent, 401/403 auth, Invalid
+    To/From headers.
+  - Every HTTP email provider runs `providertest.RunHTTP`; coverage 97–100%.
+  - `go vet` and `go test -race ./...` pass.
 
-## Next up: rest of step 6
+## Next up: step 7
 
-`email/resend` (POST /emails, Bearer, to ≤50, template {id, variables},
-tags from Metadata [ASCII letters/digits/_/- only], Idempotency-Key from
-Message.ID ≤256 chars; errors `{statusCode, message, name}` — names listed in
-Resend docs: missing_api_key/restricted_api_key/suspended_api_key → auth,
-rate_limit_exceeded → throttle, daily/monthly_quota_exceeded → permanent,
-validation_error, invalid_from_address → sender), `email/brevo` (POST
-/v3/smtp/email, header api-key, templateId int + params, tags; codes
-unauthorized, permission_denied, not_enough_credits, invalid_parameter,
-missing_parameter, duplicate_request, account_under_validation; inline
-images unsupported → ErrUnsupported), `email/ses` (sesv2 SendEmail behind an
-`API` interface like `sms/sns`; Simple content supports Attachments and
-Headers, Template{TemplateName, TemplateData}; EmailTags from Metadata;
-ConfigurationSetName option; error codes MessageRejected,
-MailFromDomainNotVerifiedException, AccountSuspendedException,
-SendingPausedException, LimitExceededException, TooManyRequestsException,
-NotFoundException, BadRequestException), `email/gmail` (upload endpoint
-`/upload/gmail/v1/users/{user}/messages/send?uploadType=media` with
-`message/rfc822` mimex bytes incl. Bcc, caller-supplied OAuth2 http.Client or
-token func, `WithUser`). Then tick step 6 and commit.
+Chat, push and webhook providers, verified against official docs first:
+`chat/telegram` (Bot API sendMessage per chat ID, `parse_mode` from
+Data["parse_mode"] or HTML when Message.HTML is set, disable notification
+option, 429 `retry_after`, error_code/description mapping: 400 chat not
+found → recipient, 401 → auth, 403 bot blocked → recipient), `chat/bale`
+(Telegram-compatible API at tapi.bale.ai — reuse the Telegram client with a
+different base URL), `chat/slack` (incoming webhook URL; text/HTML → mrkdwn
+text; plain-text error bodies like `invalid_payload`, `no_service`),
+`chat/discord` (webhook URL, `content` ≤2000 chars, `?wait=true` to get the
+message ID, 429 JSON `retry_after`), `push/fcm` (HTTP v1
+projects/{id}/messages:send, OAuth2 client or token func like gmail,
+token/topic/condition targets, notification title/body + data, error
+status UNREGISTERED/INVALID_ARGUMENT → recipient, QUOTA_EXCEEDED →
+throttle, UNAVAILABLE/INTERNAL → fault, SENDER_ID_MISMATCH → auth),
+`webhook` (generic JSON POST of the message with HMAC-SHA256 signature
+header and timestamp, configurable header names, receiver-side `Verify`
+helper). Each HTTP provider runs `providertest.RunHTTP`.
 
 ## Provider API notes (verified during step 0)
 
