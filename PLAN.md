@@ -114,7 +114,7 @@ type Provider interface {
 - [x] **8. Local templates** — render messages from template sets. Tests.
 - [x] **9. microjet module, persistence and queue** — `queue` (Store,
   gormx DBStore, lease-based worker), `module` (host wiring). Tests on SQLite.
-- [ ] **10. Config-driven provider factories** — build providers from TOML /
+- [x] **10. Config-driven provider factories** — build providers from TOML /
   map config (`type = "kavenegar"`), registry, `module.WithConfig`. Tests.
 - [ ] **11. Examples and docs** — focused runnable examples, a microjet host
   example, README, CHANGELOG.
@@ -414,18 +414,51 @@ Keep core types provider-neutral.
     host lifecycle via `app.Start`/`Shutdown`. Coverage queue 97%, module
     99%. `go vet` and `go test -race ./...` pass.
 
-## Next up: step 10
+- Step 10 — config-driven providers done:
+  - `config` (no provider imports): `Spec{Name, Settings}`, `Registry`
+    (case-insensitive types), `Builder{Registry, Resolve, Schemes}.Build`
+    → `Built{Providers, Defaults}` + `Register(notifier)`. Reserved keys:
+    type, default, retry_attempts/retry_initial/retry_max (wraps in Retry),
+    and type "failover" with a providers list (members in any order,
+    nested failovers, unknown names and cycles reported, a member's error
+    reported once). Values "env:NAME", "file:/path" resolved built-in;
+    other schemes via `Resolve`. `Settings` (Required, String, Bool, Int,
+    Duration, List, OneOf, Prefixed, Errorf, Err) tracks reads so unknown
+    keys (typos) are errors.
+  - `config/builtin.Registry()`: factories for all 26 types (every provider
+    plus logger and memory), settings documented in the package comment;
+    `timeout` per HTTP provider; AWS via the default chain with region /
+    static keys / endpoint; Gmail and FCM via service-account JSON
+    (credentials_json or credentials_file, Gmail `user` = domain-wide
+    delegation subject) or Application Default Credentials, token refresh
+    on its own context. Dependencies added: golang.org/x/oauth2,
+    aws-sdk-go-v2/config.
+  - `module.WithConfig(registry)` reads `[notijet.providers.<name>]`
+    (`module.ConfigSection`) during config loading, registers after code
+    providers, then applies `WithDefault`s (which may name configured
+    providers); `module.WithSecrets(secretx.Resolver, schemes...)` (default
+    scheme "secret"); `module.Specs` flattens nested tables to dotted keys
+    and lists to commas.
+  - Tests: each HTTP factory builds from config against a recording server
+    and its credential/sender reach the wire; SNS (query/XML) and SES
+    (REST/JSON) against a fake endpoint with static keys; Gmail and FCM with
+    a generated service-account key and fake token endpoint, plus ADC via
+    GOOGLE_APPLICATION_CREDENTIALS; required-key and typo errors; module
+    startup via configx.NewMapReader. Coverage config 99%, builtin 99%,
+    module 99%. `go vet` and `go test -race ./...` pass.
 
-Config-driven factories. Add `notijet/config`: a `Spec` (`type`, `name`,
-string settings map) and a `Registry` of `Factory func(Spec)
-(notijet.Provider, error)`; every provider package exports
-`FromConfig(map[string]string)` (or similar) built on its `New` and options,
-with typed parsing helpers (bool, int, durations, lists) and clear errors for
-unknown or missing keys. A `config/all` package registers every built-in
-provider (explicit import, no hidden init side effects in provider
-packages). `module.WithConfig` reads `[notijet.providers.<name>]` sections
-through microjet's configx and registers them; secrets via microjet secretx
-where supported. Study microjet configx/secretx first.
+## Next up: step 11
+
+Examples and docs: `examples/` as separate `main` packages (in this module,
+built by `go vet ./...`): quickstart (memory/logger + Notifier), sms-otp
+(template with fallback text + Failover + Retry), email (SMTP preset + local
+templates + attachments), queue (SQLite, enqueue in a transaction, worker),
+microjet-host (module with TOML config, builtin registry, secrets), webhook
+receiver (Verifier). README (overview, provider table with features,
+error model, Failover/Retry/PartialError semantics, templates, queue,
+config reference pointer, testing with memory/providertest), CHANGELOG
+(v0.1.0), package doc review. Every example must compile and run against
+the logger/memory providers or local test servers without credentials.
 
 ## Provider API notes (verified during step 0)
 

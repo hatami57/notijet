@@ -25,10 +25,12 @@ import (
 	"time"
 
 	"github.com/hatami57/microjet/core/errorx"
+	"github.com/hatami57/microjet/core/secretx"
 	"github.com/hatami57/microjet/gormx"
 	"github.com/hatami57/microjet/host"
 
 	"github.com/hatami57/notijet"
+	"github.com/hatami57/notijet/config"
 	"github.com/hatami57/notijet/queue"
 )
 
@@ -40,7 +42,7 @@ type provider struct {
 	p    notijet.Provider
 }
 
-type config struct {
+type options struct {
 	providers []provider
 	defaults  []string
 	hooks     []notijet.Hooks
@@ -50,32 +52,36 @@ type config struct {
 	database  string
 	store     queue.Store
 	worker    bool
+
+	registry *config.Registry
+	resolver secretx.Resolver
+	schemes  []string
 }
 
 // Option configures the module.
-type Option func(*config)
+type Option func(*options)
 
 // WithProvider registers p in the Notifier under name ("" means p.Name());
 // the first provider of each channel is that channel's default.
 func WithProvider(name string, p notijet.Provider) Option {
-	return func(c *config) { c.providers = append(c.providers, provider{name, p}) }
+	return func(c *options) { c.providers = append(c.providers, provider{name, p}) }
 }
 
 // WithDefault makes the provider registered under name its channel's
 // default.
 func WithDefault(name string) Option {
-	return func(c *config) { c.defaults = append(c.defaults, name) }
+	return func(c *options) { c.defaults = append(c.defaults, name) }
 }
 
 // WithHooks adds hooks run around every send through the Notifier.
 func WithHooks(h notijet.Hooks) Option {
-	return func(c *config) { c.hooks = append(c.hooks, h) }
+	return func(c *options) { c.hooks = append(c.hooks, h) }
 }
 
 // WithQueue enables the persistent queue on the app's default gormx database
 // (see WithDatabase) and runs its worker, configured by opts.
 func WithQueue(opts ...queue.Option) Option {
-	return func(c *config) {
+	return func(c *options) {
 		c.queue = true
 		c.queueOpts = append(c.queueOpts, opts...)
 	}
@@ -84,29 +90,29 @@ func WithQueue(opts ...queue.Option) Option {
 // WithDatabase keeps the queue in the named gormx database. It enables the
 // queue.
 func WithDatabase(name string) Option {
-	return func(c *config) { c.queue, c.database = true, name }
+	return func(c *options) { c.queue, c.database = true, name }
 }
 
 // WithStore keeps the queue in store instead of a gormx database. It enables
 // the queue.
 func WithStore(s queue.Store) Option {
-	return func(c *config) { c.queue, c.store = true, s }
+	return func(c *options) { c.queue, c.store = true, s }
 }
 
 // WithoutWorker enables the queue for enqueueing only, for apps where another
 // process runs the worker.
 func WithoutWorker() Option {
-	return func(c *config) { c.queue, c.worker = true, false }
+	return func(c *options) { c.queue, c.worker = true, false }
 }
 
 // Module is the notijet host module.
 type Module struct {
-	cfg config
+	cfg options
 }
 
 // New returns the module.
 func New(opts ...Option) *Module {
-	m := &Module{cfg: config{database: gormx.DefaultDatabase, worker: true}}
+	m := &Module{cfg: options{database: gormx.DefaultDatabase, worker: true}}
 	for _, opt := range opts {
 		opt(&m.cfg)
 	}
@@ -124,10 +130,12 @@ func (m *Module) Register(app *host.App) error {
 			return err
 		}
 	}
-	for _, name := range m.cfg.defaults {
-		if err := n.SetDefault(name); err != nil {
-			return err
-		}
+	if m.cfg.registry != nil {
+		// Configured providers are built when the host reads config; the
+		// defaults are applied after them, as they may name one.
+		host.ProvideService(app, &configService{cfg: &m.cfg, notifier: n})
+	} else if err := applyDefaults(n, m.cfg.defaults); err != nil {
+		return err
 	}
 	for _, h := range m.cfg.hooks {
 		n.AddHooks(h)
