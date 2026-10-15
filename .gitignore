@@ -30,3 +30,9 @@ config.local.toml
 # OS
 .DS_Store
 Thumbs.db
+
+# SQLite files created by examples
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

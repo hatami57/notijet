@@ -1,0 +1,4 @@
+Hi {{.name}},
+
+Your order #{{.order}} is on its way and should arrive by {{.eta}}.
+{{template "partials/signature.txt" .}}

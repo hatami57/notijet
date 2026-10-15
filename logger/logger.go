@@ -105,6 +105,9 @@ func attrs(p *Provider, id string, msg *notijet.Message) []any {
 		names := make([]string, n)
 		for i, att := range msg.Attachments {
 			names[i] = att.Filename
+			if att.Inline() && att.Filename == "" {
+				names[i] = "cid:" + att.ContentID
+			}
 		}
 		a = append(a, slog.Any("attachments", names))
 	}

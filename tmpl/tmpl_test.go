@@ -15,17 +15,17 @@ import (
 )
 
 var files = fstest.MapFS{
-	"templates/welcome.subject":    {Data: []byte("Welcome,\n {{.Name}}!")},
-	"templates/welcome.txt":        {Data: []byte("\nHi {{.Name}}.\n{{template \"_footer.txt\" .}}\n")},
-	"templates/welcome.html":       {Data: []byte(`<p>Hi {{.Name}}</p>{{template "_footer.html" .}}`)},
-	"templates/welcome.fa.subject": {Data: []byte("خوش آمدید {{.Name}}")},
-	"templates/welcome.fa.txt":     {Data: []byte("سلام {{.Name}}")},
-	"templates/_footer.txt":        {Data: []byte("-- Acme")},
-	"templates/_footer.html":       {Data: []byte(`<footer>Acme</footer>`)},
-	"templates/orders/shipped.txt": {Data: []byte("Order {{.ID | upper}} shipped")},
-	"templates/otp.txt":            {Data: []byte("Your code is {{.code}}")},
-	"templates/README.md":          {Data: []byte("ignored")},
-	"other/stray.txt":              {Data: []byte("outside the dir")},
+	"templates/welcome.subject":      {Data: []byte("Welcome,\n {{.Name}}!")},
+	"templates/welcome.txt":          {Data: []byte("\nHi {{.Name}}.\n{{template \"partials/footer.txt\" .}}\n")},
+	"templates/welcome.html":         {Data: []byte(`<p>Hi {{.Name}}</p>{{template "partials/footer.html" .}}`)},
+	"templates/welcome.fa.subject":   {Data: []byte("خوش آمدید {{.Name}}")},
+	"templates/welcome.fa.txt":       {Data: []byte("سلام {{.Name}}")},
+	"templates/partials/footer.txt":  {Data: []byte("-- Acme")},
+	"templates/partials/footer.html": {Data: []byte(`<footer>Acme</footer>`)},
+	"templates/orders/shipped.txt":   {Data: []byte("Order {{.ID | upper}} shipped")},
+	"templates/otp.txt":              {Data: []byte("Your code is {{.code}}")},
+	"templates/README.md":            {Data: []byte("ignored")},
+	"other/stray.txt":                {Data: []byte("outside the dir")},
 }
 
 func parse(t *testing.T, opts ...Option) *Set {
@@ -82,8 +82,11 @@ func TestErrors(t *testing.T) {
 	assert.ErrorIs(t, err, notijet.ErrTemplate, "missing keys fail by default")
 	assert.False(t, notijet.IsRetryable(err))
 
-	_, err = s.Render("_footer", nil)
+	_, err = s.Render("partials/footer", nil)
 	assert.Error(t, err, "partials are not templates")
+	assert.True(t, isPartial("emails/partials/x"))
+	assert.False(t, isPartial("partials"), "a template named partials is not under the directory")
+	assert.False(t, isPartial("my-partials/x"))
 
 	lenient := parse(t, MissingKeyZero())
 	r, err := lenient.Render("otp", map[string]any{})

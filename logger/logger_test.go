@@ -22,13 +22,13 @@ func TestSendLogs(t *testing.T) {
 		To:          []string{"a@x.io"},
 		Subject:     "Welcome",
 		Text:        "hello there",
-		Attachments: []notijet.Attachment{{Filename: "invoice.pdf"}},
+		Attachments: []notijet.Attachment{{Filename: "invoice.pdf"}, {ContentID: "logo"}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "dev-mail", res.Provider)
 	assert.NotEmpty(t, res.MessageID())
 	out := buf.String()
-	for _, s := range []string{"notijet: message", "a@x.io", "Welcome", "hello there", "invoice.pdf", res.MessageID()} {
+	for _, s := range []string{"notijet: message", "a@x.io", "Welcome", "hello there", "invoice.pdf", "cid:logo", res.MessageID()} {
 		assert.Contains(t, out, s)
 	}
 }

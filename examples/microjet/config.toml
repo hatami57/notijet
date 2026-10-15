@@ -1,0 +1,54 @@
+# notijet example — microjet host config. Run from this directory:
+#   go run .
+# Override any value with environment variables (prefix APP), e.g.
+#   APP_LOG_LEVEL=debug go run .
+
+[app]
+name = "notijet example"
+environment = "development"
+
+[log]
+level = "info"
+
+[database]
+# SQLite file holding the notification queue (table notijet_messages).
+name = "notijet-example.db"
+
+# Providers, one table each; the table name is the provider's name.
+# These print messages instead of sending them, so the example needs no
+# credentials. See config/builtin for every type and its settings.
+[notijet.providers.sms]
+type = "logger"
+channel = "sms"
+default = true
+
+[notijet.providers.mail]
+type = "logger"
+channel = "email"
+
+# Real providers look like this. Values may reference secrets instead of
+# holding them: "env:NAME", "file:/path", or "secret:<ref>" with
+# module.WithSecrets.
+#
+# [notijet.providers.otp]
+# type = "kavenegar"
+# api_key = "env:KAVENEGAR_API_KEY"
+# sender = "10004346"
+# retry_attempts = 3
+#
+# [notijet.providers.otp-backup]
+# type = "smsir"
+# api_key = "env:SMSIR_API_KEY"
+# sender = "30007732000000"
+#
+# [notijet.providers.sms]
+# type = "failover"
+# providers = "otp, otp-backup"
+# default = true
+#
+# [notijet.providers.mail]
+# type = "smtp"
+# preset = "gmail"
+# username = "me@gmail.com"
+# password = "env:GMAIL_APP_PASSWORD"
+# from = "Acme <me@gmail.com>"

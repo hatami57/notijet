@@ -8,8 +8,10 @@
 //	welcome.txt       plain text     (text/template)
 //	welcome.html      HTML body      (html/template, contextually escaped)
 //	welcome.fa.txt    a locale variant, chosen by RenderLocale("welcome", "fa", ...)
-//	_footer.html      a partial: files starting with "_" are not templates
-//	                  themselves; use them with {{template "_footer.html" .}}
+//	partials/footer.html
+//	                  a partial: files under a directory named "partials" are
+//	                  not templates themselves; include them with
+//	                  {{template "partials/footer.html" .}}
 //
 // Load them from any fs.FS, typically an embed.FS:
 //
@@ -32,6 +34,7 @@ import (
 	htmltemplate "html/template"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	texttemplate "text/template"
@@ -144,11 +147,12 @@ func ParseFS(fsys fs.FS, dir string, opts ...Option) (*Set, error) {
 	return s, nil
 }
 
-// Add adds one part of a template from source. A name whose last path
-// element starts with "_" is a partial: it can be included by other parts
-// ({{template "_footer.html" .}} — partials are referenced by name plus
-// extension) but not rendered on its own. Text partials (.subject, .txt)
-// serve the subject and text parts; HTML partials serve HTML parts.
+// Add adds one part of a template from source. A name under a directory
+// named "partials" is a partial: it can be included by
+// other parts ({{template "partials/footer.html" .}} — partials are referenced
+// by name plus extension) but not rendered on its own. Text partials
+// (.subject, .txt) serve the subject and text parts; HTML partials serve HTML
+// parts. (The convention avoids a "_" prefix, which go:embed skips.)
 func (s *Set) Add(name string, part Part, source string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,7 +172,7 @@ func (s *Set) Add(name string, part Part, source string) error {
 	if err != nil {
 		return invalid("parsing " + full + ": " + err.Error())
 	}
-	if !strings.HasPrefix(path.Base(name), "_") {
+	if !isPartial(name) {
 		if s.parts[name] == nil {
 			s.parts[name] = map[Part]bool{}
 		}
@@ -283,6 +287,12 @@ func candidates(name, locale string) []string {
 		l = l[:i]
 	}
 	return append(out, name)
+}
+
+// isPartial reports whether a template name lies under a "partials"
+// directory.
+func isPartial(name string) bool {
+	return slices.Contains(strings.Split(path.Dir(name), "/"), "partials")
 }
 
 func partOf(p string) (Part, bool) {

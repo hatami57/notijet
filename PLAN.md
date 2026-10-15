@@ -116,7 +116,7 @@ type Provider interface {
   gormx DBStore, lease-based worker), `module` (host wiring). Tests on SQLite.
 - [x] **10. Config-driven provider factories** — build providers from TOML /
   map config (`type = "kavenegar"`), registry, `module.WithConfig`. Tests.
-- [ ] **11. Examples and docs** — focused runnable examples, a microjet host
+- [x] **11. Examples and docs** — focused runnable examples, a microjet host
   example, README, CHANGELOG.
 - [ ] **12. Final review** — vet, race tests, staticcheck, consistency pass.
 
@@ -447,18 +447,32 @@ Keep core types provider-neutral.
     startup via configx.NewMapReader. Coverage config 99%, builtin 99%,
     module 99%. `go vet` and `go test -race ./...` pass.
 
-## Next up: step 11
+- Step 11 — examples and docs done:
+  - `examples/`: quickstart (logger providers, Notifier, errors), failover
+    (Kavenegar template → Twilio text over local fake APIs, Retry +
+    Failover), templates (embed.FS, locale, partials, inline image,
+    Decorate), queue (SQLite, enqueue in a transaction with commit and
+    rollback, retry after backoff with a simulated clock), microjet (host
+    module, config.toml providers, queue worker; run from its directory),
+    webhook-receiver (signed send + Verifier). All run without credentials
+    and were run to check their output.
+  - Fixes found by the examples: `tmpl` partials now live under a
+    `partials/` directory instead of a `_` prefix, because go:embed skips
+    `_` files (regression test embeds testdata); the logger provider names
+    inline attachments `cid:<id>`.
+  - README (providers table, message model, sending, error model incl.
+    PartialError/FailoverError, templates, queue, module/config, testing,
+    examples) and CHANGELOG (0.1.0). `.gitignore` ignores SQLite files.
+  - `go vet` and `go test -race ./...` pass.
 
-Examples and docs: `examples/` as separate `main` packages (in this module,
-built by `go vet ./...`): quickstart (memory/logger + Notifier), sms-otp
-(template with fallback text + Failover + Retry), email (SMTP preset + local
-templates + attachments), queue (SQLite, enqueue in a transaction, worker),
-microjet-host (module with TOML config, builtin registry, secrets), webhook
-receiver (Verifier). README (overview, provider table with features,
-error model, Failover/Retry/PartialError semantics, templates, queue,
-config reference pointer, testing with memory/providertest), CHANGELOG
-(v0.1.0), package doc review. Every example must compile and run against
-the logger/memory providers or local test servers without credentials.
+## Next up: step 12
+
+Final review: `staticcheck ./...` (install if missing) and fix findings;
+`go vet`, `go test -race -count=2 ./...`; a consistency pass over every
+package — option naming, doc comments matching behaviour, error subjects =
+provider Name, no secrets in errors/logs, context use, exported API surface
+(nothing exported that should not be); check README/package docs against
+code; `go mod tidy` clean; final coverage table in PLAN.md.
 
 ## Provider API notes (verified during step 0)
 
