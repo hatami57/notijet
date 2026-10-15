@@ -1,0 +1,32 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test & coverage output
+*.test
+*.out
+coverage.*
+
+# Go workspace / vendoring
+go.work
+go.work.sum
+/vendor/
+
+# Environment & secrets (provider credentials)
+.env
+.env.*
+*.local
+config.local.toml
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
