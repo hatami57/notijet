@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hatami57/microjet/core/errorx"
 	"github.com/hatami57/notijet"
 )
 
@@ -66,7 +65,7 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 	if err := ctx.Err(); err != nil {
 		return nil, notijet.Fault(p.name, "context done", err)
 	}
-	if err := p.check(msg); err != nil {
+	if err := notijet.Check(p.name, p.channel, msg); err != nil {
 		return nil, err
 	}
 
@@ -104,24 +103,6 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 		})
 	}
 	return res, nil
-}
-
-func (p *Provider) check(msg *notijet.Message) error {
-	switch p.channel {
-	case notijet.ChannelSMS:
-		_, err := notijet.CheckSMS(p.name, msg, true)
-		return err
-	case notijet.ChannelEmail:
-		_, err := notijet.CheckEmail(p.name, msg, true)
-		return err
-	}
-	if err := msg.Validate(); err != nil {
-		if e := errorx.GetError(err); e != nil {
-			return e.WithSubject(p.name)
-		}
-		return err
-	}
-	return nil
 }
 
 func allRecipients(msg *notijet.Message) []string {

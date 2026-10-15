@@ -103,3 +103,33 @@ func TestErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestMoreCases(t *testing.T) {
+	p, calls := server(t, 201, `{"status":"queued"}`)
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "a reply without sid is unexpected")
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"bogus"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	_, err = New("", "").Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.Error(t, err)
+	_, err = New("AC1", "t").Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidSender)
+	assert.Len(t, *calls, 1)
+
+	for _, tc := range []struct {
+		status   int
+		body     string
+		sentinel error
+	}{
+		{400, `{"code":14107,"message":"rate"}`, notijet.ErrRateLimited},
+		{403, `{"code":99999,"message":"forbidden"}`, notijet.ErrUnauthorized},
+	} {
+		p, _ := server(t, tc.status, tc.body)
+		_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+		assert.ErrorIs(t, err, tc.sentinel)
+	}
+	p, _ = server(t, 400, `{"message":"no code"}`)
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.Equal(t, "400", notijet.ProviderCode(err))
+}

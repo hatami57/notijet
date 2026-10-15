@@ -83,3 +83,41 @@ func TestErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestMoreCases(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(b, &body))
+		w.WriteHeader(202)
+		fmt.Fprint(w, `{"message_uuid":["u1"]}`)
+	}))
+	defer srv.Close()
+	p := New("MA1", "t", WithBaseURL(srv.URL), WithSender("Acme"), WithDefaultCountry("44"), WithCallback("https://x.io/cb"))
+	res, err := p.Send(context.Background(), &notijet.Message{To: []string{"07700900123"}, Text: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, "447700900123", body["dst"])
+	assert.Equal(t, "https://x.io/cb", body["url"])
+	assert.Equal(t, "POST", body["method"])
+	assert.Equal(t, "Acme", body["src"], "an alphanumeric sender is not a Powerpack UUID")
+	assert.Equal(t, "+447700900123", res.Receipts[0].To)
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"bogus"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	_, err = New("", "").Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.Error(t, err)
+	_, err = New("MA1", "t").Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidSender)
+
+	empty, _ := server(t, 202, `{"message_uuid":[]}`)
+	_, err = empty.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "no UUIDs and no invalid numbers is unexpected")
+
+	other, _ := server(t, 400, `{"error":"text too long"}`)
+	_, err = other.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.Equal(t, "400", notijet.ProviderCode(err))
+	assert.False(t, notijet.IsRetryable(err))
+
+	assert.False(t, isUUID("8e33a96e-4ab5-4c0b-b8a0-3e8f1fd6e0bZ"))
+	assert.False(t, isUUID("8e33a96e04ab5-4c0b-b8a0-3e8f1fd6e0b1"))
+}

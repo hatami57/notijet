@@ -104,6 +104,24 @@ func CheckChat(provider string, msg *Message, needsRecipient bool) error {
 	return nil
 }
 
+// Check validates msg for a provider of channel ch that accepts every feature
+// its channel allows, templates included: CheckSMS for SMS, CheckEmail for
+// email, and the common Validate checks for any other channel. It is what
+// test and development providers (memory, logger) use to behave like a real
+// provider of their channel.
+func Check(provider string, ch Channel, msg *Message) error {
+	var err error
+	switch ch {
+	case ChannelSMS:
+		_, err = CheckSMS(provider, msg, true)
+	case ChannelEmail:
+		_, err = CheckEmail(provider, msg, true)
+	default:
+		err = withSubject(msg.Validate(), provider)
+	}
+	return err
+}
+
 func rejectEmailFeatures(provider string, msg *Message) error {
 	switch {
 	case len(msg.Attachments) > 0:
@@ -118,6 +136,9 @@ func rejectEmailFeatures(provider string, msg *Message) error {
 // "message") with the provider name, so every error a provider returns carries
 // the provider as its subject.
 func withSubject(err error, provider string) error {
+	if err == nil {
+		return nil
+	}
 	if e := errorx.GetError(err); e != nil {
 		return e.WithSubject(provider)
 	}

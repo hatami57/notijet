@@ -88,3 +88,26 @@ func TestErrors(t *testing.T) {
 	_, err = New("k", "s").Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
 	assert.ErrorIs(t, err, notijet.ErrInvalidSender)
 }
+
+func TestMoreCases(t *testing.T) {
+	var form url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseForm())
+		form = r.PostForm
+		fmt.Fprint(w, `{"messages":[{"to":"447700900123","message-id":"x","status":"0"}]}`)
+	}))
+	defer srv.Close()
+	p := New("k", "s", WithBaseURL(srv.URL), WithSender("Acme"), WithCallback("https://x.io/dlr"))
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, "https://x.io/dlr", form.Get("callback"))
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"07700900123"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient, "national form needs WithDefaultCountry")
+	_, err = New("", "").Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.Error(t, err)
+
+	unauthorized, _ := server(t, 401, "Unauthorized")
+	_, err = unauthorized.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrUnauthorized)
+}

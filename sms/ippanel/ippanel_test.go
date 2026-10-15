@@ -102,3 +102,27 @@ func TestErrors(t *testing.T) {
 	_, err = New("k").Send(context.Background(), text)
 	assert.ErrorIs(t, err, notijet.ErrInvalidSender)
 }
+
+func TestMoreCases(t *testing.T) {
+	p, calls := server(t, 200, ok)
+	long := "این یک پیام طولانی است که بیش از سی کاراکتر دارد"
+	res, err := p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: long})
+	require.NoError(t, err)
+	assert.Equal(t, string([]rune(long)[:30]), (*calls)[0].body["description"].(map[string]any)["summary"])
+	assert.Equal(t, "+989121234567", res.Receipts[0].To, "a single recipient's receipt names it")
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"12"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	_, err = New("").Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.Error(t, err)
+	assert.Len(t, *calls, 1)
+
+	p, _ = server(t, 400, `{"status":"ERROR","data":{"error":["odd"]}}`)
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.Equal(t, "400", notijet.ProviderCode(err), "HTTP status stands in for a missing code")
+	assert.Contains(t, err.Error(), `["odd"]`, "unknown error shapes are kept verbatim")
+
+	p, _ = server(t, 400, `{"status":"ERROR","code":400}`)
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.False(t, notijet.IsRetryable(err))
+}

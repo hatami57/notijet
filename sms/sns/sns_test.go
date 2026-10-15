@@ -90,3 +90,19 @@ func TestErrors(t *testing.T) {
 	_, err = New(&fake{}).Send(context.Background(), &notijet.Message{To: []string{"07700900123"}, Text: "x"})
 	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
 }
+
+type emptyOutput struct{}
+
+func (emptyOutput) Publish(context.Context, *awssns.PublishInput, ...func(*awssns.Options)) (*awssns.PublishOutput, error) {
+	return &awssns.PublishOutput{}, nil
+}
+
+func TestMoreCases(t *testing.T) {
+	p := New(emptyOutput{})
+	assert.Equal(t, "sns", p.Name())
+	assert.Equal(t, notijet.ChannelSMS, p.Channel())
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "no message ID is unexpected")
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}})
+	assert.Error(t, err)
+}

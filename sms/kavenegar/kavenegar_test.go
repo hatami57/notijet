@@ -194,3 +194,9 @@ func TestUnreadableAndServerErrors(t *testing.T) {
 	assert.True(t, notijet.IsRetryable(err))
 	assert.NotContains(t, err.Error(), "key", "API key must not leak into errors")
 }
+
+func TestOKWithoutEntries(t *testing.T) {
+	p, _ := server(t, 200, func(url.Values) string { return `{"return":{"status":200,"message":"ok"},"entries":[]}` })
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "a success without entries is unexpected")
+}

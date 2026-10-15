@@ -84,3 +84,37 @@ func TestErrors(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, "https://xyz.api.infobip.com", New("xyz.api.infobip.com", "k").baseURL)
 }
+
+func TestMoreCases(t *testing.T) {
+	p, _ := server(t, 200, `{"messages":[]}`)
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "no message statuses is unexpected")
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"07700900123"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+
+	unauthorized, _ := server(t, 401, `Unauthorized`)
+	_, err = unauthorized.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrUnauthorized)
+
+	noID, _ := server(t, 400, `{}`)
+	_, err = noID.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+	assert.Equal(t, "400", notijet.ProviderCode(err))
+
+	for name, sentinel := range map[string]error{"REJECTED_FLOODING_FILTER": notijet.ErrRateLimited, "REJECTED_OTHER": nil} {
+		r, _ := server(t, 200, `{"messages":[{"to":"1","status":{"groupId":5,"name":"`+name+`"},"messageId":"m"}]}`)
+		_, err := r.Send(context.Background(), &notijet.Message{To: []string{"+447700900123"}, Text: "x"})
+		require.Error(t, err)
+		assert.Equal(t, name, notijet.ProviderCode(err))
+		if sentinel != nil {
+			assert.ErrorIs(t, err, sentinel)
+		}
+	}
+
+	national, calls := server(t, 200, `{"messages":[{"to":"447700900123","status":{"groupId":1,"name":"PENDING"},"messageId":"m"}]}`)
+	national = New(national.baseURL, "key", WithDefaultCountry("44"))
+	_, err = national.Send(context.Background(), &notijet.Message{To: []string{"07700900123"}, Text: "x"})
+	require.NoError(t, err)
+	m := (*calls)[len(*calls)-1].body["messages"].([]any)[0].(map[string]any)
+	assert.Nil(t, m["from"], "no sender: Infobip uses the account default")
+}

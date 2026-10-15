@@ -136,3 +136,16 @@ func TestErrors(t *testing.T) {
 	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
 	assert.True(t, notijet.IsRetryable(err), "success without data is unexpected")
 }
+
+func TestValidationBeforeNetwork(t *testing.T) {
+	p, calls := server(t, 200, bulkOK)
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"+14155550100"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient, "SMS.ir sends to Iranian mobiles only")
+	_, err = New("").Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.Error(t, err)
+	assert.Empty(t, *calls)
+
+	res, err := p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, "1", res.Receipts[0].Cost, "a single-recipient bulk send reports its cost")
+}

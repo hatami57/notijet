@@ -105,7 +105,7 @@ type Provider interface {
   ippanel. Tests against `httptest` servers.
 - [x] **4. International SMS providers** — twilio, vonage, plivo, infobip, sns.
   Tests.
-- [ ] **5. SMTP email** — `email/smtp` with STARTTLS / implicit TLS, PLAIN and
+- [x] **5. SMTP email** — `email/smtp` with STARTTLS / implicit TLS, PLAIN and
   LOGIN auth, presets. Tests against an in-process SMTP server.
 - [ ] **6. Email API providers** — gmail, ses, sendgrid, mailgun, postmark,
   resend, brevo. Tests.
@@ -233,17 +233,60 @@ type Provider interface {
     `GOPRIVATE='github.com/hatami57/*' GONOSUMDB='github.com/hatami57/*'`.
   - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 5
+- Step 5 — SMTP email done, plus a test-quality pass over steps 2–4:
+  - `email/smtp`: `New(host, port, opts...)` (port 0 → 587, 465 → implicit
+    TLS), `Security` = `StartTLS` (default; fails when not offered) |
+    `ImplicitTLS` | `NoTLS`; `Preset{Host, Port, Security}` with `.New(...)`
+    for Gmail, Outlook, Office365, Yahoo, Zoho, ICloud, Yandex. Options:
+    `WithAuth` (PLAIN, else LOGIN — picked from the server's AUTH list),
+    `WithOAuth2(user, tokenFunc)` (XOAUTH2), `WithSecurity`, `WithTLSConfig`,
+    `WithFrom`, `WithLocalName`, `WithMessageIDDomain`, `WithTimeout`,
+    `WithDialer`. Built on net/smtp (imported as `netsmtp`) with ctx-aware
+    dialing, conn deadlines and cancellation (`context.AfterFunc`).
+    Credentials are never sent unencrypted to a non-localhost server. Receipt
+    MessageID = the Message-ID header; partially refused RCPTs are delivered
+    to the rest with "rejected: <code> <text>" receipts, all refused → error.
+    Reply mapping: 4xx → retryable fault; 530/534/535/538 or any auth-stage
+    5xx → `ErrUnauthorized`; MAIL 550/553/501/555 → `ErrInvalidSender`; RCPT
+    550/551/553/501 → `ErrInvalidRecipient`; untrusted certificate →
+    permanent; dial/I/O errors stripped of socket addresses; a deadline that
+    passed reports `context.DeadlineExceeded`.
+  - Tests use an in-process fake SMTP server (`fake_test.go`: EHLO,
+    STARTTLS, implicit TLS, AUTH PLAIN/LOGIN/XOAUTH2, per-recipient replies,
+    DATA replies, stalling) with a generated self-signed certificate.
+  - `providertest.RunHTTP`: exported conformance suite every HTTP provider
+    runs (identity, validation before any request, 5xx/429/unreadable
+    reply/transport failure categories, custom HTTP client used, cancelled
+    context not retryable, secret never in errors). All nine HTTP SMS
+    providers run it.
+  - `notijet.Check(provider, channel, msg)` replaces the duplicated channel
+    checks in `memory` and `logger`.
+  - Coverage: every package 93–100% except `providertest` (82%, its own
+    failure-reporting branches); the rest are unreachable JSON-encoding error
+    branches.
+  - `go vet` and `go test -race ./...` pass.
 
-`email/smtp`: `New(host, port, opts...)` with `WithAuth(user, pass)`,
-STARTTLS (587, required by default when auth is set), implicit TLS (465),
-PLAIN and LOGIN auth, `WithTLSConfig`, `WithLocalName`, presets (`Gmail`,
-`Outlook`, `Office365`, `Yahoo`, `Zoho`, `ICloud`, `Yandex`) returning
-host/port/TLS mode; message built by `internal/mimex` (BCC excluded from
-headers, included in the envelope); connection per send with ctx-aware
-dialing and deadlines; SMTP reply codes mapped (535 auth, 550/553 recipient,
-552/452 quota → retry for 4xx). Tests against an in-process fake SMTP server
-covering STARTTLS, implicit TLS, both auth mechanisms, and errors.
+## Testing policy (from the user: "complete tests and no mistake, keep the project generic")
+
+Every provider ships with: happy paths for each send mode, request shape
+assertions, every error-code mapping (sentinel, providerCode, retryability),
+validation-before-network, unexpected replies, and `providertest.RunHTTP`
+when it speaks HTTP. Verify API details against official docs before coding.
+Keep core types provider-neutral.
+
+## Next up: step 6
+
+Email API providers, each verified against official docs first and each
+running `providertest.RunHTTP` (channel email): `email/sendgrid` (v3
+mail/send, personalizations, dynamic templates), `email/mailgun` (US/EU
+regions, form/multipart, template + variables), `email/postmark` (single,
+templates, MessageStream), `email/resend`, `email/brevo` (smtp/email,
+templateId + params), `email/ses` (SES v2 SendEmail: Simple content, Raw via
+`mimex` when there are attachments/headers, Template; behind an interface
+like `sms/sns`), `email/gmail` (Gmail API users.messages.send with raw
+`mimex` bytes including BCC, using a caller-supplied OAuth2 `*http.Client`).
+Map attachments/inline images, Metadata → tags/custom args, Message.ID where
+a provider accepts it.
 
 ## Provider API notes (verified during step 0)
 

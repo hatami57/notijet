@@ -117,3 +117,30 @@ func TestErrors(t *testing.T) {
 	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
 	assert.True(t, notijet.IsRetryable(err))
 }
+
+func TestMoreCases(t *testing.T) {
+	p, calls := server(t, 200, func(map[string]any) string {
+		return `{"Data":{"Receptor":"09121234567","Cost":1,"MessageId":"9"},"IsSuccess":true,"StatusCode":200}`
+	})
+	_, err := p.Send(context.Background(), &notijet.Message{ID: "only", To: []string{"09121234567"}, Text: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, "only", (*calls)[0].body["clientReferenceId"], "a single recipient keeps the ID as is")
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"0912"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	_, err = New("").Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.Error(t, err)
+	assert.Len(t, *calls, 1)
+
+	p, _ = server(t, 200, func(map[string]any) string { return `{"IsSuccess":false,"StatusCode":500,"Message":"error"}` })
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err))
+
+	p, _ = server(t, 200, func(map[string]any) string { return `{"IsSuccess":false}` })
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.True(t, notijet.IsRetryable(err), "a failure without a status code is unexpected")
+
+	p, _ = server(t, 200, func(map[string]any) string { return `{"IsSuccess":false,"StatusCode":418,"Message":"credit"}` })
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Template: notijet.NewTemplate("t", "a", "1")})
+	assert.ErrorIs(t, err, notijet.ErrInsufficientCredit)
+}

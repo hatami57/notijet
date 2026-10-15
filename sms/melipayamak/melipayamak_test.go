@@ -112,3 +112,25 @@ func TestErrors(t *testing.T) {
 	_, err = New("", "").Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
 	assert.Error(t, err)
 }
+
+func TestMoreCodesAndValidation(t *testing.T) {
+	p, calls := server(t, `{"Value":"35","RetStatus":35,"StrRetStatus":""}`)
+	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	assert.Contains(t, err.Error(), "code 35", "an empty status text gets a generic message")
+
+	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"12345"}, Text: "x"})
+	assert.ErrorIs(t, err, notijet.ErrInvalidRecipient)
+	assert.Len(t, *calls, 1)
+}
+
+func TestHTTPErrorWithSuccessShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"Value":"4567891234","RetStatus":1,"StrRetStatus":"Ok"}`)
+	}))
+	defer srv.Close()
+	_, err := New("u", "p", WithBaseURL(srv.URL), WithSender("5000")).Send(context.Background(),
+		&notijet.Message{To: []string{"09121234567"}, Text: "x"})
+	assert.Equal(t, "400", notijet.ProviderCode(err))
+}
