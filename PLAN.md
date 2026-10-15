@@ -111,7 +111,7 @@ type Provider interface {
   resend, brevo. Tests.
 - [x] **7. Chat, push and webhook providers** — telegram, bale, slack, discord,
   fcm, webhook. Tests.
-- [ ] **8. Local templates** — render messages from template sets. Tests.
+- [x] **8. Local templates** — render messages from template sets. Tests.
 - [ ] **9. microjet module, persistence and queue** — `Store` (gormx),
   `Queue` + worker, `Module()`, config-driven provider factories. Tests on
   SQLite.
@@ -357,17 +357,38 @@ Keep core types provider-neutral.
   - Coverage 94–100% (providertest 82%); `go vet` and `go test -race ./...`
     pass.
 
-## Next up: step 8
+- Step 8 — local templates done (package `tmpl`, provider-neutral):
+  - `Set` from `ParseFS(fsys, dir, opts...)` (walks dir; `.subject`, `.txt`,
+    `.html`; name = path relative to dir without extension) or
+    `New(opts...)` + `Add(name, part, src)`. Subject and text parts use
+    text/template, HTML uses html/template. Files whose base name starts
+    with `_` are partials, included as `{{template "_footer.html" .}}`.
+    Options `WithFuncs`, `MissingKeyZero` (missing keys are errors by
+    default). Adding after the first render is an error.
+  - `Render`, `RenderLocale(name, locale, data)` (tries name.fa-IR,
+    name.fa, name; a whole variant, never mixed), `Has(name, locale)`,
+    `Apply(msg, name, locale, data)` (sets only the parts the template has).
+    Subject collapsed to one line; parts trimmed. Errors are 400 with
+    `ErrTemplate`.
+  - `Decorate(p, set, localeFunc)`: renders a Message.Template the set knows
+    (params as data) into a clone and clears Template; unknown templates
+    pass through to the provider.
+  - Coverage 99%; `go vet` and `go test -race ./...` pass.
 
-Local templates (package `tmpl`, provider-neutral): a `Set` loaded from an
-`fs.FS` (embed.FS friendly) or added in code, each template named with
-optional parts `<name>.subject`, `<name>.txt`, `<name>.html` (text/template
-for subject and text, html/template for HTML), shared partials/layouts,
-`Funcs`, `Option`s for missing-key behaviour (error by default). `Render(name,
-data) (*Rendered, error)` and `Apply(msg, name, data)` that fills
-Subject/Text/HTML of a Message (keeping fields already set unless asked).
-Optional locale fallback (`welcome.fa.html` → `welcome.html`). Errors are
-notijet `Invalid`/`ErrTemplate`. Tests with fstest.MapFS.
+## Next up: step 9
+
+microjet module, persistence and queue. First study `../microjet` (host
+module interface, gormx, outbox, config) and `../payjet`/`../bojet`
+(`module.go`, `db_store.go`) to match their patterns. Then: `Store`
+interface + gormx implementation (sent/queued message records with status,
+attempts, provider, receipts, last error, timestamps); `Queue` that
+persists messages (joining the caller's gormx transaction) and a worker
+delivering them through a `Notifier` with retry/backoff (`IsRetryable`,
+`PartialError` → no resend) and quarantine of permanent failures;
+config-driven provider factories (`Register(type, factory)` filled by each
+provider package's `init` in a `notijet/providers` registry, or explicit
+registration to avoid import side effects — decide after studying
+microjet); `Module()` wiring. Tests on SQLite.
 
 ## Provider API notes (verified during step 0)
 
