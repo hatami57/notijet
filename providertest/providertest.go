@@ -39,6 +39,12 @@ type HTTPCase struct {
 	Message func() *notijet.Message
 	// Secret is a credential passed to New that must never appear in an error.
 	Secret string
+	// RecipientOptional skips the "no recipient is invalid" check, for
+	// providers that post to a fixed destination (incoming webhooks).
+	RecipientOptional bool
+	// AnySuccessBody skips the "unreadable 2xx reply is a fault" check, for
+	// providers that accept whatever a 2xx reply carries (generic webhooks).
+	AnySuccessBody bool
 }
 
 // RunHTTP runs the conformance checks as subtests of t.
@@ -62,10 +68,12 @@ func RunHTTP(t *testing.T, c HTTPCase) {
 		p := c.New(srv.URL, srv.Client())
 
 		invalid := map[string]*notijet.Message{"nil message": nil}
+		if !c.RecipientOptional {
+			m := c.Message()
+			m.To, m.CC, m.BCC = nil, nil, nil
+			invalid["no recipient"] = m
+		}
 		m := c.Message()
-		m.To, m.CC, m.BCC = nil, nil, nil
-		invalid["no recipient"] = m
-		m = c.Message()
 		m.Text, m.HTML, m.Template = "", "", nil
 		invalid["no body"] = m
 		for name, msg := range invalid {
@@ -94,6 +102,9 @@ func RunHTTP(t *testing.T, c HTTPCase) {
 		{"unreadable 200 is a fault", http.StatusOK, "<html>not json</html>", errorx.IsInternalError, "an Internal error"},
 	}
 	for _, f := range failures {
+		if c.AnySuccessBody && f.status == http.StatusOK {
+			continue
+		}
 		t.Run(f.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(f.status)

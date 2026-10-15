@@ -109,7 +109,7 @@ type Provider interface {
   LOGIN auth, presets. Tests against an in-process SMTP server.
 - [x] **6. Email API providers** — gmail, ses, sendgrid, mailgun, postmark,
   resend, brevo. Tests.
-- [ ] **7. Chat, push and webhook providers** — telegram, bale, slack, discord,
+- [x] **7. Chat, push and webhook providers** — telegram, bale, slack, discord,
   fcm, webhook. Tests.
 - [ ] **8. Local templates** — render messages from template sets. Tests.
 - [ ] **9. microjet module, persistence and queue** — `Store` (gormx),
@@ -320,25 +320,54 @@ Keep core types provider-neutral.
   - Every HTTP email provider runs `providertest.RunHTTP`; coverage 97–100%.
   - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 7
+- Step 7 — chat, push and webhook providers done:
+  - `internal/botapi`: sendMessage client for Telegram-compatible bot APIs —
+    one call per chat (or `DefaultChat`), Subject as first line, 4096-char
+    limit (runes), HTML → parse_mode HTML where supported,
+    `Data["parse_mode"]`, silent / no-link-preview; errors: 401/404 auth,
+    403 (blocked/kicked) and "chat not found" → recipient, 429 throttle, 5xx
+    fault. Token in the path never reaches errors.
+  - `chat/telegram` (`WithChatID`, `WithSilent`, `WithoutLinkPreview`,
+    `WithBaseURL` for a local Bot API server) and `chat/bale`
+    (tapi.bale.ai; Markdown only, so HTML and parse_mode are unsupported).
+  - `internal/chatutil` (`CheckWebhook`: no recipients, Text required;
+    `Text` with Subject line). `chat/slack`: incoming webhook, requires body
+    "ok", `Data["blocks"]` JSON array, plain-text error codes mapped
+    (no_service/invalid_token… auth; channel_not_found/archived… recipient).
+    `chat/discord`: webhook with `?wait=true` (keeps existing query),
+    ≤2000 chars, mentions ping no one unless `WithMentions`, `WithUsername`,
+    `WithAvatarURL`, `Data["embeds"]`; 10015/50027/401/403/404 → auth.
+  - `push/fcm`: HTTP v1 per recipient (token, "topic:x" or "/topics/x",
+    "condition:…"); Subject/Text → notification, Data → data; data-only
+    messages allowed; OAuth2 client or `WithToken`; stale tokens
+    (UNREGISTERED, NOT_FOUND, INVALID_ARGUMENT about the token) become
+    "invalid: <code>" receipts and only fail the send when every recipient
+    is invalid; other failures after a success → `PartialError`;
+    SENDER_ID_MISMATCH/THIRD_PARTY_AUTH_ERROR/401/403 auth, QUOTA_EXCEEDED
+    throttle.
+  - `webhook`: JSON `Payload` of every message field (`NewPayload`,
+    `Payload.Message` round-trip), optional HMAC-SHA256 signature
+    (`X-Notijet-Timestamp`, `X-Notijet-Signature: sha256=…` over
+    "ts.body"), `WithHeader`, `WithChannel`; any 2xx succeeds (JSON `id` →
+    MessageID); 401/403 auth, 408 retryable. Receiver side: `Sign`,
+    `Verifier{Secret, Tolerance, Now}.Verify/VerifyBody` (constant-time
+    compare, ±5 min window, empty secret refused).
+  - `providertest.HTTPCase` gained `RecipientOptional` and `AnySuccessBody`
+    for fixed-destination and generic endpoints.
+  - Coverage 94–100% (providertest 82%); `go vet` and `go test -race ./...`
+    pass.
 
-Chat, push and webhook providers, verified against official docs first:
-`chat/telegram` (Bot API sendMessage per chat ID, `parse_mode` from
-Data["parse_mode"] or HTML when Message.HTML is set, disable notification
-option, 429 `retry_after`, error_code/description mapping: 400 chat not
-found → recipient, 401 → auth, 403 bot blocked → recipient), `chat/bale`
-(Telegram-compatible API at tapi.bale.ai — reuse the Telegram client with a
-different base URL), `chat/slack` (incoming webhook URL; text/HTML → mrkdwn
-text; plain-text error bodies like `invalid_payload`, `no_service`),
-`chat/discord` (webhook URL, `content` ≤2000 chars, `?wait=true` to get the
-message ID, 429 JSON `retry_after`), `push/fcm` (HTTP v1
-projects/{id}/messages:send, OAuth2 client or token func like gmail,
-token/topic/condition targets, notification title/body + data, error
-status UNREGISTERED/INVALID_ARGUMENT → recipient, QUOTA_EXCEEDED →
-throttle, UNAVAILABLE/INTERNAL → fault, SENDER_ID_MISMATCH → auth),
-`webhook` (generic JSON POST of the message with HMAC-SHA256 signature
-header and timestamp, configurable header names, receiver-side `Verify`
-helper). Each HTTP provider runs `providertest.RunHTTP`.
+## Next up: step 8
+
+Local templates (package `tmpl`, provider-neutral): a `Set` loaded from an
+`fs.FS` (embed.FS friendly) or added in code, each template named with
+optional parts `<name>.subject`, `<name>.txt`, `<name>.html` (text/template
+for subject and text, html/template for HTML), shared partials/layouts,
+`Funcs`, `Option`s for missing-key behaviour (error by default). `Render(name,
+data) (*Rendered, error)` and `Apply(msg, name, data)` that fills
+Subject/Text/HTML of a Message (keeping fields already set unless asked).
+Optional locale fallback (`welcome.fa.html` → `welcome.html`). Errors are
+notijet `Invalid`/`ErrTemplate`. Tests with fstest.MapFS.
 
 ## Provider API notes (verified during step 0)
 
