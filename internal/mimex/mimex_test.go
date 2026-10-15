@@ -158,3 +158,58 @@ func TestBuildRejectsBadInput(t *testing.T) {
 	_, err = Build("p", m, Options{})
 	assert.Error(t, err, "no recipient")
 }
+
+func TestAttachmentContentTypeWithParams(t *testing.T) {
+	msg := &notijet.Message{
+		From: "a@x.io", To: []string{"b@x.io"}, Subject: "s", Text: "t",
+		Attachments: []notijet.Attachment{
+			{Filename: "notes.txt", Content: []byte("hi")},
+			{Filename: "page.html", Content: []byte("<p>")},
+			{Filename: "data.bin", ContentType: "application/x-custom; version=2", Content: []byte{1}},
+			{Filename: "odd", ContentType: "not a type;;", Content: []byte{1}},
+		},
+	}
+	m, err := Build("p", msg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(m.Bytes)
+	for _, want := range []string{
+		`Content-Type: text/plain; charset=utf-8; name=notes.txt`,
+		`Content-Type: text/html; charset=utf-8; name=page.html`,
+		`Content-Type: application/x-custom; name=data.bin; version=2`,
+		`Content-Type: application/octet-stream; name=odd`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestContentTypeAndCheckHeaders(t *testing.T) {
+	cases := map[string]notijet.Attachment{
+		"image/png":                {Filename: "a.png"},
+		"application/octet-stream": {Filename: "noext"},
+		"application/pdf":          {Filename: "a.png", ContentType: " application/pdf "},
+	}
+	for want, a := range cases {
+		if got := ContentType(a); got != want {
+			t.Errorf("ContentType(%+v) = %q, want %q", a, got, want)
+		}
+	}
+	if err := CheckHeaders(map[string]string{"List-Unsubscribe": "<mailto:u@x.io>"}); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []map[string]string{
+		{"Subject": "x"}, {"X-A": "a\r\nBcc: e@x.io"}, {"X A": "v"}, {"": "v"},
+	} {
+		if CheckHeaders(bad) == nil {
+			t.Errorf("CheckHeaders(%q) = nil", bad)
+		}
+	}
+	_, err := Build("p", &notijet.Message{From: "a@x.io", To: []string{"b@x.io"}, Subject: "s", Text: "t",
+		Headers: map[string]string{"": "v"}}, Options{})
+	if err == nil {
+		t.Error("Build accepted an empty header name")
+	}
+}

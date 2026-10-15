@@ -6,6 +6,7 @@ package mimex
 
 import (
 	"bytes"
+	"maps"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -145,15 +146,10 @@ func Build(provider string, msg *notijet.Message, opts Options) (*Message, error
 	h.add("Date", date.Format(time.RFC1123Z))
 	h.add("Message-ID", out.MessageID)
 	h.add("MIME-Version", "1.0")
-	keys := make([]string, 0, len(msg.Headers))
-	for k := range msg.Headers {
-		keys = append(keys, k)
+	if err := CheckHeaders(msg.Headers); err != nil {
+		return nil, notijet.Invalid(provider, err.Error())
 	}
-	slices.Sort(keys)
-	for _, k := range keys {
-		if reserved[textproto.CanonicalMIMEHeaderKey(k)] {
-			return nil, notijet.Invalid(provider, "header "+k+" is set from the message fields")
-		}
+	for _, k := range slices.Sorted(maps.Keys(msg.Headers)) {
 		h.add(k, msg.Headers[k])
 	}
 	if h.err != nil {
@@ -263,19 +259,14 @@ func textPart(subtype, content string) part {
 func attachmentParts(list []notijet.Attachment) []part {
 	parts := make([]part, len(list))
 	for i, a := range list {
-		ct := a.ContentType
-		if ct == "" {
-			ct = mime.TypeByExtension(filepath.Ext(a.Filename))
-		}
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
 		h := textproto.MIMEHeader{}
 		name := a.Filename
 		if name == "" {
 			name = a.ContentID
 		}
-		h.Set("Content-Type", mime.FormatMediaType(ct, map[string]string{"name": name}))
+		mediaType, params := splitMediaType(ContentType(a))
+		params["name"] = name
+		h.Set("Content-Type", mime.FormatMediaType(mediaType, params))
 		h.Set("Content-Transfer-Encoding", "base64")
 		disposition := "attachment"
 		if a.Inline() {
@@ -290,6 +281,46 @@ func attachmentParts(list []notijet.Attachment) []part {
 		}}
 	}
 	return parts
+}
+
+// ContentType returns the attachment's MIME type: its ContentType, else the
+// type registered for its file extension, else application/octet-stream.
+func ContentType(a notijet.Attachment) string {
+	ct := strings.TrimSpace(a.ContentType)
+	if ct == "" {
+		ct = mime.TypeByExtension(filepath.Ext(a.Filename))
+	}
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return ct
+}
+
+// splitMediaType splits "text/plain; charset=utf-8" into its type and
+// parameters, so more parameters can be added before formatting it again. A
+// value that does not parse is treated as application/octet-stream.
+func splitMediaType(ct string) (string, map[string]string) {
+	mediaType, params, err := mime.ParseMediaType(ct)
+	if err != nil {
+		return "application/octet-stream", map[string]string{}
+	}
+	return mediaType, params
+}
+
+// CheckHeaders reports a custom header that would corrupt or override the
+// message: a malformed name, a value with a line break, or a header derived
+// from the message fields (From, To, Subject ...). Providers that pass
+// Message.Headers to an API call it so they reject exactly what Build rejects.
+func CheckHeaders(headers map[string]string) error {
+	for _, k := range slices.Sorted(maps.Keys(headers)) {
+		if reserved[textproto.CanonicalMIMEHeaderKey(k)] {
+			return fmt.Errorf("header %s is set from the message fields", k)
+		}
+		if k == "" || strings.ContainsAny(k, "\r\n: ") || strings.ContainsAny(headers[k], "\r\n") {
+			return fmt.Errorf("header %q contains a line break or is malformed", k)
+		}
+	}
+	return nil
 }
 
 func multi(subtype string, children []part) part {

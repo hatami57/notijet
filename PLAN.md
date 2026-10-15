@@ -274,19 +274,40 @@ validation-before-network, unexpected replies, and `providertest.RunHTTP`
 when it speaks HTTP. Verify API details against official docs before coding.
 Keep core types provider-neutral.
 
-## Next up: step 6
+- Step 6 — in progress (committed part way):
+  - Done: `internal/emailutil` (`Prepare` validation + address parsing,
+    `Display` UTF-8 names, `Emails`, `Receipt`); `mimex.ContentType` and
+    `mimex.CheckHeaders` exported. Fixed a `mimex` bug: an attachment whose
+    type carries parameters (`.txt` → `text/plain; charset=utf-8`) got an
+    empty Content-Type. `Build` now rejects empty header names too.
+  - Done: `email/sendgrid` (requires 202, dedupes addresses across To/CC/BCC,
+    dynamic templates, custom_args, inline cid), `email/mailgun` (multipart,
+    US/EU, template + t:variables, v: vars, inline by ContentID filename),
+    `email/postmark` (/email and /email/withTemplate by ID or alias, 50
+    recipient cap, MessageStream). Each runs `providertest.RunHTTP`.
+  - Dependency added: aws-sdk-go-v2/service/sesv2 (not yet used).
 
-Email API providers, each verified against official docs first and each
-running `providertest.RunHTTP` (channel email): `email/sendgrid` (v3
-mail/send, personalizations, dynamic templates), `email/mailgun` (US/EU
-regions, form/multipart, template + variables), `email/postmark` (single,
-templates, MessageStream), `email/resend`, `email/brevo` (smtp/email,
-templateId + params), `email/ses` (SES v2 SendEmail: Simple content, Raw via
-`mimex` when there are attachments/headers, Template; behind an interface
-like `sms/sns`), `email/gmail` (Gmail API users.messages.send with raw
-`mimex` bytes including BCC, using a caller-supplied OAuth2 `*http.Client`).
-Map attachments/inline images, Metadata → tags/custom args, Message.ID where
-a provider accepts it.
+## Next up: rest of step 6
+
+`email/resend` (POST /emails, Bearer, to ≤50, template {id, variables},
+tags from Metadata [ASCII letters/digits/_/- only], Idempotency-Key from
+Message.ID ≤256 chars; errors `{statusCode, message, name}` — names listed in
+Resend docs: missing_api_key/restricted_api_key/suspended_api_key → auth,
+rate_limit_exceeded → throttle, daily/monthly_quota_exceeded → permanent,
+validation_error, invalid_from_address → sender), `email/brevo` (POST
+/v3/smtp/email, header api-key, templateId int + params, tags; codes
+unauthorized, permission_denied, not_enough_credits, invalid_parameter,
+missing_parameter, duplicate_request, account_under_validation; inline
+images unsupported → ErrUnsupported), `email/ses` (sesv2 SendEmail behind an
+`API` interface like `sms/sns`; Simple content supports Attachments and
+Headers, Template{TemplateName, TemplateData}; EmailTags from Metadata;
+ConfigurationSetName option; error codes MessageRejected,
+MailFromDomainNotVerifiedException, AccountSuspendedException,
+SendingPausedException, LimitExceededException, TooManyRequestsException,
+NotFoundException, BadRequestException), `email/gmail` (upload endpoint
+`/upload/gmail/v1/users/{user}/messages/send?uploadType=media` with
+`message/rfc822` mimex bytes incl. Bcc, caller-supplied OAuth2 http.Client or
+token func, `WithUser`). Then tick step 6 and commit.
 
 ## Provider API notes (verified during step 0)
 
