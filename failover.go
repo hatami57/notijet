@@ -2,6 +2,7 @@ package notijet
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 )
@@ -11,9 +12,10 @@ import (
 //
 // It moves on after any error — a refusal (no credit, bad credentials), a
 // fault, or a feature the provider lacks (a Template on a text-only provider is
-// fine when the message also carries Text; see TextOrTemplate) — and stops only
-// when ctx is done. Wrap each member in Retry to retry a provider before moving
-// on, or wrap the Failover in Retry to retry the whole chain.
+// fine when the message also carries Text; see TextOrTemplate). It stops when
+// ctx is done, and on a *PartialError, since the next provider would resend to
+// the recipients already reached. Wrap each member in Retry to retry a provider
+// before moving on, or wrap the Failover in Retry to retry the whole chain.
 //
 // The Failover is named "failover" and reports the first provider's Channel.
 // It panics when providers is empty or holds a nil provider.
@@ -53,6 +55,9 @@ func (f *failover) Send(ctx context.Context, msg *Message) (*Result, error) {
 			return res, nil
 		}
 		errs = append(errs, err)
+		if _, partial := errors.AsType[*PartialError](err); partial {
+			break
+		}
 	}
 	if len(errs) == 1 {
 		return nil, errs[0]
@@ -64,9 +69,10 @@ func (f *failover) Send(ctx context.Context, msg *Message) (*Result, error) {
 // Errors holds each provider's error in the order they were tried.
 //
 // It unwraps to a single representative error, so errorx categories,
-// errors.Is and IsRetryable see that one: the first retryable error when there
-// is one — so a queue retries a chain that failed partly for transient reasons
-// — and otherwise the last error. Inspect Errors to examine every failure.
+// errors.Is and IsRetryable see that one: a *PartialError when the chain
+// stopped on one (the message is partly delivered, so it must not be retried
+// whole), else the first retryable error — so a queue retries a chain that
+// failed partly for transient reasons — and otherwise the last error. Inspect Errors to examine every failure.
 type FailoverError struct {
 	Errors []error
 }
@@ -90,10 +96,14 @@ func (e *FailoverError) Unwrap() error {
 	if len(e.Errors) == 0 {
 		return nil
 	}
+	last := e.Errors[len(e.Errors)-1]
+	if _, partial := errors.AsType[*PartialError](last); partial {
+		return last
+	}
 	for _, err := range e.Errors {
 		if IsRetryable(err) {
 			return err
 		}
 	}
-	return e.Errors[len(e.Errors)-1]
+	return last
 }

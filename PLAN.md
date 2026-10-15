@@ -101,7 +101,7 @@ type Provider interface {
   shared by SMTP, Gmail API and SES raw), `phone` package. Tests.
 - [x] **2. Notifier and decorators** — `Notifier`, `Failover`, `Retry`, hooks,
   `memory` and `logger` providers. Tests.
-- [ ] **3. Iranian SMS providers** — kavenegar, smsir, melipayamak, ghasedak,
+- [x] **3. Iranian SMS providers** — kavenegar, smsir, melipayamak, ghasedak,
   ippanel. Tests against `httptest` servers.
 - [ ] **4. International SMS providers** — twilio, vonage, plivo, infobip, sns.
   Tests.
@@ -177,14 +177,40 @@ type Provider interface {
     configurable level and returns a random message ID.
   - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 3
+- Step 3 — Iranian SMS providers done:
+  - Core additions: `SendBatches` (chunked sending loop) and `PartialError`
+    (some recipients reached before a failure; never retryable, stops a
+    `Failover`, and `FailoverError` unwraps to it), `InvalidTemplate` (400 +
+    `ErrTemplate`). `internal/smsutil` (`Recipients` normalize + dedupe,
+    `Sender`, `Flag`), `internal/flexjson.String`.
+  - Every SMS provider: `New(credentials, opts...)` with `WithSender`,
+    `WithHTTPClient`, `WithBaseURL`; exported `Name` and `DefaultBaseURL`;
+    validation before any request; template when the message has one, else
+    text (via `CheckSMS`); provider codes → sentinels, kept as `providerCode`.
+  - `sms/kavenegar`: send.json in 200-receptor batches (API key path-escaped),
+    lookup per recipient; params → token/token2/token3/token10/token20 by name
+    or position; `Data["type"]="call"`; numeric `Message.ID` → localid.
+  - `sms/smsir`: bulk in 100-mobile batches (numeric line required), verify
+    per recipient (numeric template ID).
+  - `sms/melipayamak`: SendSMS in 100-recipient batches, BaseServiceNumber per
+    recipient (numeric bodyId, values joined by `;`); Value in -10..35 is an
+    error code, larger values are recIds; `Data["flash"]`.
+  - `sms/ghasedak`: SendSingleSMS per recipient, SendOtpSMS in 100-receptor
+    batches; generated clientReferenceIds; `Data["voice"]`; a 429 whose body
+    is a Ghasedak status means "template param not found", not a rate limit.
+  - `sms/ippanel`: E.164 recipients, webservice in 100-recipient batches (one
+    message ID per request), pattern per recipient; errors from
+    `error_message` or `data.error` (string or field map).
+  - `go vet` and `go test -race ./...` pass.
 
-Iranian SMS providers `sms/kavenegar`, `sms/smsir`, `sms/melipayamak`,
-`sms/ghasedak`, `sms/ippanel`, each with `New(credentials, opts...)`,
-`WithSender`, `WithHTTPClient`, `WithBaseURL` (for tests), text + template
-sending via `notijet.CheckSMS`, phone normalization through `phone`, error-code
-mapping to the notijet sentinels per the API notes below, and `httptest`-based
-tests.
+## Next up: step 4
+
+International SMS providers `sms/twilio`, `sms/vonage`, `sms/plivo`,
+`sms/infobip`, `sms/sns`, same option shape as step 3, E.164 recipients via
+`phone.E164` with a `WithDefaultCountry` option, no templates (`CheckSMS(...,
+false)`), error mapping per each API's documented codes, `httptest` tests.
+Verify each API against official docs first and record the notes below. For
+SNS decide between microjet's `aws` module and a small SigV4 signer.
 
 ## Provider API notes (verified during step 0)
 
@@ -216,3 +242,28 @@ tests.
   `Apikey`; `POST /sms/send/webservice/single` `{sender, recipient[], message,
   description}`; `POST /sms/pattern/normal/send` `{code, sender, recipient,
   variable{}}`. Envelope `{status, code, error_message, data{message_id}}`.
+
+### Error codes confirmed during step 3
+
+- SMS.ir status (sms.ir/rest-api): 1 ok, 0 server error, 10–14 key/account
+  (invalid, disabled, IP-restricted, inactive, suspended), 20 rate limit,
+  101 line invalid, 102 credit, 103 empty text, 104 invalid mobile, 105/106
+  >100 mobiles/texts, 107–110 list/date errors, 113 template not found, 114
+  param >25 chars, 115 blacklisted, 116 empty param name, 117 text not
+  approved, 118 too many messages, 119 plan upgrade, 123 line not activated.
+  `BulkSendModel.lineNumber` is int64 (OpenAPI at api.sms.ir/swagger).
+- Ghasedak statusCode (ghasedak.me/docs): 200 ok, 400 bad input, 401 key /
+  inactive account, 402 failed, 406/412 line problems, 413 too long / too
+  many recipients, 416 IP mismatch, 418 credit, 419 tariff, 420 forbidden
+  link, 422 bad characters, 426 plan upgrade, 428 template invalid, 429 param
+  not found, 451 duplicate request, 500 error. Reply keys are PascalCase.
+- IPPanel (go-rest-sdk v2): envelope `{status, code, error_message, data}`,
+  header `Apikey`; pattern `recipient` is a single string, `variable` a map;
+  webservice `description{summary, count_recipient}`; validation errors come
+  as `data.error` (string or field → messages map).
+- Melipayamak codes (from the panel's web service docs): 0 credentials, 2
+  credit, 3/4 send limits, 5 sender, 6 updating, 7 filtered words, 9 public
+  line, 10 inactive user, 11 not sent, 12 documents, 14 link, 15 missing
+  لغو11, 16 recipient not found, 17 empty text, 35 blacklist; pattern: -1
+  access disabled, -2 recipients, -3 line, -4 bodyId, -5 args mismatch, -6
+  internal, -7 sender, -10 link in args.

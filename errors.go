@@ -72,6 +72,13 @@ func InvalidSender(provider, message string) *errorx.Error {
 	return providerError(errorx.BadRequestErrorType, provider, "", message, ErrInvalidSender)
 }
 
+// InvalidTemplate reports a malformed provider template detected before any
+// network call (a non-numeric ID where the provider wants a number, a missing
+// parameter). BadRequest → 400, and matches errors.Is(err, ErrTemplate).
+func InvalidTemplate(provider, message string) *errorx.Error {
+	return providerError(errorx.BadRequestErrorType, provider, "", message, ErrTemplate)
+}
+
 // Unsupported reports a message feature the provider cannot honour.
 // BadRequest → 400, and matches errors.Is(err, ErrUnsupported).
 func Unsupported(provider, feature string) *errorx.Error {
@@ -120,10 +127,14 @@ func FaultCode(provider, code, message string, inner error) *errorx.Error {
 // IsRetryable reports whether sending the same message again may succeed: a
 // fault (transport failure, 5xx, unreadable reply) or a rate limit. Bad input,
 // unsupported features and provider refusals are permanent, and so is a
-// cancelled context — the caller gave up. A plain error that is not an
+// cancelled context — the caller gave up — and a *PartialError, since sending
+// again would duplicate what was delivered. A plain error that is not an
 // errorx.Error (from a custom provider) is treated as retryable.
 func IsRetryable(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if _, partial := errors.AsType[*PartialError](err); partial {
 		return false
 	}
 	if errors.Is(err, ErrRateLimited) {
