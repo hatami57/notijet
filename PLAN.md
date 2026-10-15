@@ -118,7 +118,7 @@ type Provider interface {
   map config (`type = "kavenegar"`), registry, `module.WithConfig`. Tests.
 - [x] **11. Examples and docs** — focused runnable examples, a microjet host
   example, README, CHANGELOG.
-- [ ] **12. Final review** — vet, race tests, staticcheck, consistency pass.
+- [x] **12. Final review** — vet, race tests, staticcheck, consistency pass.
 
 ## Progress log
 
@@ -465,14 +465,30 @@ Keep core types provider-neutral.
     examples) and CHANGELOG (0.1.0). `.gitignore` ignores SQLite files.
   - `go vet` and `go test -race ./...` pass.
 
-## Next up: step 12
+- Step 12 — final review done:
+  - staticcheck (default checks) clean after fixing an unused test var, a
+    comment the compiler read as a malformed go:embed directive, and
+    `awsutil.Classify`, now `(apiErr, mapped)` with the error last — which
+    also removed duplicated errors.As code from sns/ses. Style checks
+    (ST1000/1003/1016/1020-1022): renamed Postmark's `HtmlBody` field to
+    `HTMLBody` (JSON name unchanged). A scan for exported declarations
+    without doc comments found only interface methods on unexported types.
+  - Notifier/README logging claims corrected: recipients and content are not
+    logged, but a failure's error is logged as the provider reported it.
+  - `go mod tidy` clean; `go vet`, staticcheck and
+    `go test -race -count=3 ./...` pass.
+  - Coverage: notijet 95%, phone/logger/smsutil/emailutil/chatutil/awsutil
+    100%, every SMS provider 96–100%, email 96–100%, chat 96–100%, fcm 98%,
+    webhook 98%, tmpl 99%, queue 98%, module 99%, config 99%, builtin 99%,
+    httpc 93%, mimex 92%, flexjson 93%, botapi 95%, providertest 82%.
 
-Final review: `staticcheck ./...` (install if missing) and fix findings;
-`go vet`, `go test -race -count=2 ./...`; a consistency pass over every
-package — option naming, doc comments matching behaviour, error subjects =
-provider Name, no secrets in errors/logs, context use, exported API surface
-(nothing exported that should not be); check README/package docs against
-code; `go mod tidy` clean; final coverage table in PLAN.md.
+## Status
+
+All planned steps are done. Possible follow-ups, not started: delivery-status
+webhooks per provider (parsing DLR callbacks into a common event), more
+providers (MessageBird, AWS End User Messaging, Mailjet, Microsoft Teams,
+APNs direct), per-provider rate limiting, and a release tag (drop the local
+microjet `replace` directives first, as go.mod notes).
 
 ## Provider API notes (verified during step 0)
 

@@ -95,7 +95,7 @@ type request struct {
 	ReplyTo       string            `json:"ReplyTo,omitempty"`
 	Subject       string            `json:"Subject,omitempty"`
 	TextBody      string            `json:"TextBody,omitempty"`
-	HtmlBody      string            `json:"HtmlBody,omitempty"`
+	HTMLBody      string            `json:"HtmlBody,omitempty"`
 	Headers       []header          `json:"Headers,omitempty"`
 	Attachments   []attachment      `json:"Attachments,omitempty"`
 	Metadata      map[string]string `json:"Metadata,omitempty"`
@@ -160,7 +160,7 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 		}
 		req.TemplateModel = msg.Template.Map()
 	} else {
-		req.TextBody, req.HtmlBody = msg.Text, msg.HTML
+		req.TextBody, req.HTMLBody = msg.Text, msg.HTML
 	}
 
 	r, err := httpc.JSON(http.MethodPost, p.baseURL+path, req)

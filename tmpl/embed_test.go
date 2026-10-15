@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// go:embed skips files and directories starting with "_" or "."; partials
-// must survive embedding with a plain directory pattern.
+// Embedding a directory skips files and directories starting with "_" or
+// "."; partials must survive embedding with a plain directory pattern.
 //
 //go:embed testdata/embedded
 var embedded embed.FS

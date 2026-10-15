@@ -18,7 +18,6 @@ package ses
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"maps"
 	"net/mail"
 	"slices"
@@ -28,7 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
-	"github.com/aws/smithy-go"
 
 	"github.com/hatami57/notijet"
 	"github.com/hatami57/notijet/internal/awsutil"
@@ -194,11 +192,10 @@ func attachmentList(list []notijet.Attachment) []types.Attachment {
 
 // mapError turns an SES error into a notijet error.
 func mapError(err error, template bool) error {
-	if mapped, _, _, done := awsutil.Classify(Name, err); done {
+	apiErr, mapped := awsutil.Classify(Name, err)
+	if mapped != nil {
 		return mapped
 	}
-	var apiErr smithy.APIError
-	errors.As(err, &apiErr)
 	code, message := apiErr.ErrorCode(), apiErr.ErrorMessage()
 	lower := strings.ToLower(message)
 	switch {

@@ -103,7 +103,9 @@ n.SendVia(ctx, "mail", msg)           // by name
 
 - **`Notifier`** — named providers, a default per channel, hooks
   (`BeforeSend` may adjust a copy of the message or veto it, `AfterSend` sees
-  every outcome) and structured logging that never logs recipients or content.
+  every outcome) and structured logging that records recipient counts, never
+  recipients or content (a failure's error is logged as the provider reported
+  it).
 - **`Failover(providers...)`** — tries each in order until one succeeds.
 - **`Retry(p, ...)`** — retries retryable errors with jittered exponential
   backoff, honouring the context.

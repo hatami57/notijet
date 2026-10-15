@@ -88,7 +88,6 @@ var (
 	smsMsg   = func() *notijet.Message { return &notijet.Message{To: []string{"09121234567"}, Text: "hi"} }
 	intlMsg  = func() *notijet.Message { return &notijet.Message{To: []string{"+447700900123"}, Text: "hi"} }
 	mailMsg  = func() *notijet.Message { return &notijet.Message{To: []string{"a@x.io"}, Subject: "s", Text: "t"} }
-	chatMsg  = func() *notijet.Message { return &notijet.Message{To: []string{"-100"}, Text: "hi"} }
 	hookMsg  = func() *notijet.Message { return &notijet.Message{Text: "hi"} }
 	settings = func(kv ...string) map[string]string {
 		m := map[string]string{}

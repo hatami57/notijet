@@ -33,8 +33,10 @@ type Notifier struct {
 type NotifierOption func(*Notifier)
 
 // WithLogger sets the logger the Notifier records sends with: successful sends
-// at Debug, failures at Warn. Recipients and content are never logged, only
-// their count. A nil logger disables logging. The default is slog.Default().
+// at Debug, failures at Warn. The Notifier logs the recipient count, never the
+// recipients or the content; a failure's error is logged as the provider
+// reported it, which may quote the provider's reply. A nil logger disables
+// logging. The default is slog.Default().
 func WithLogger(l *slog.Logger) NotifierOption {
 	return func(n *Notifier) {
 		if l == nil {

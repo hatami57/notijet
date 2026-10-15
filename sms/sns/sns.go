@@ -15,13 +15,11 @@ package sns
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awssns "github.com/aws/aws-sdk-go-v2/service/sns"
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
-	"github.com/aws/smithy-go"
 
 	"github.com/hatami57/notijet"
 	"github.com/hatami57/notijet/internal/awsutil"
@@ -124,11 +122,10 @@ func stringAttr(v string) types.MessageAttributeValue {
 
 // mapError turns an SNS error into a notijet error.
 func mapError(err error) error {
-	if mapped, _, _, done := awsutil.Classify(Name, err); done {
+	apiErr, mapped := awsutil.Classify(Name, err)
+	if mapped != nil {
 		return mapped
 	}
-	var apiErr smithy.APIError
-	errors.As(err, &apiErr)
 	code, message := apiErr.ErrorCode(), apiErr.ErrorMessage()
 	if (code == "InvalidParameter" || code == "InvalidParameterValue") && strings.Contains(strings.ToLower(message), "phone") {
 		return notijet.Rejected(Name, code, message, notijet.ErrInvalidRecipient)

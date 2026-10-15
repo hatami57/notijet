@@ -24,26 +24,25 @@ var throttleCodes = map[string]bool{
 	"TooManyRequestsException": true, "RequestLimitExceeded": true,
 }
 
-// Classify handles the errors every AWS-backed provider treats alike. It
-// returns the notijet error and true for a non-API error (transport failure,
-// cancelled context: a fault), a credentials error, a throttling error or a
-// server-side fault. For any other API error it returns the error code and
-// message and false, for the provider to map.
-func Classify(provider string, err error) (mapped error, code, message string, done bool) {
-	var apiErr smithy.APIError
+// Classify maps the errors every AWS-backed provider treats alike: a non-API
+// error (transport failure, cancelled context) is a fault, and credential,
+// throttling and server-side errors get their category. For those it returns
+// the notijet error as mapped. For any other API error mapped is nil and
+// apiErr is the error for the provider to map from its code.
+func Classify(provider string, err error) (apiErr smithy.APIError, mapped error) {
 	if !errors.As(err, &apiErr) {
-		return notijet.Fault(provider, "AWS call failed", err), "", "", true
+		return nil, notijet.Fault(provider, "AWS call failed", err)
 	}
-	code, message = apiErr.ErrorCode(), apiErr.ErrorMessage()
+	code, message := apiErr.ErrorCode(), apiErr.ErrorMessage()
 	switch {
 	case authCodes[code]:
-		return notijet.Rejected(provider, code, message, notijet.ErrUnauthorized), code, message, true
+		return apiErr, notijet.Rejected(provider, code, message, notijet.ErrUnauthorized)
 	case throttleCodes[code]:
-		return notijet.Throttled(provider, code, message), code, message, true
+		return apiErr, notijet.Throttled(provider, code, message)
 	case apiErr.ErrorFault() == smithy.FaultServer:
-		return notijet.FaultCode(provider, code, message, err), code, message, true
+		return apiErr, notijet.FaultCode(provider, code, message, err)
 	}
-	return nil, code, message, false
+	return apiErr, nil
 }
 
 // ValidTag reports whether s may be an SNS/SES/Resend-style tag name or
