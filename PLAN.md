@@ -487,8 +487,10 @@ Keep core types provider-neutral.
 All planned steps are done. Possible follow-ups, not started: delivery-status
 webhooks per provider (parsing DLR callbacks into a common event), more
 providers (MessageBird, AWS End User Messaging, Mailjet, Microsoft Teams,
-APNs direct), per-provider rate limiting, and a release tag (drop the local
-microjet `replace` directives first, as go.mod notes).
+APNs direct), per-provider rate limiting, and a release tag.
+
+go.mod depends on the published microjet modules (v0.41.0); the local
+`../microjet` replace directives were removed after step 12.
 
 ## Provider API notes (verified during step 0)
 
