@@ -369,7 +369,14 @@ func (s *Settings) OneOf(key string, allowed ...string) string {
 		return ""
 	}
 	v = strings.ToLower(v)
-	if !slices.Contains(allowed, v) {
+	valid := false
+	for _, candidate := range allowed {
+		if strings.ToLower(candidate) == v {
+			valid = true
+			break
+		}
+	}
+	if !valid {
 		s.errs = append(s.errs, fmt.Errorf("%s: %q is not one of %s", key, v, strings.Join(allowed, ", ")))
 	}
 	return v

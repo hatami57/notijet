@@ -161,7 +161,7 @@ func TestSecretReferences(t *testing.T) {
 
 func TestSettings(t *testing.T) {
 	s := NewSettings("n", map[string]string{
-		"on": "yes", "off": "0", "bad": "maybe", "n": " 42 ", "nan": "x", "d": "90s", "neg": "-1s",
+		"on": "yes", "off": "0", "bad": "maybe", "n": " 42 ", "nan": "x", "d": "90s", "neg": "-1s", "channel": "sms",
 		"list": " a, ,b ", "header.x-a": "1", "header.x-b": "2", "blank": "  ",
 	})
 	assert.Equal(t, "n", s.Name())
@@ -179,6 +179,7 @@ func TestSettings(t *testing.T) {
 	assert.Equal(t, map[string]string{"x-a": "1", "x-b": "2"}, s.Prefixed("header."))
 	assert.Empty(t, s.Required("blank"), "blank counts as missing")
 	assert.Empty(t, s.OneOf("missing", "x"))
+	assert.Equal(t, "sms", s.OneOf("channel", "SMS", "Email"))
 	s.Errorf("custom %d", 1)
 
 	err := s.Err()
