@@ -97,6 +97,10 @@ func (r *retry) Send(ctx context.Context, msg *Message) (*Result, error) {
 func (r *retry) delay(attempt int) time.Duration {
 	d := r.initial
 	for i := 1; i < attempt && d < r.max; i++ {
+		if d > r.max/2 {
+			d = r.max
+			break
+		}
 		d *= 2
 	}
 	d = min(d, r.max)
