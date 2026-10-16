@@ -24,7 +24,7 @@ func Failover(providers ...Provider) Provider {
 		panic("notijet: Failover needs at least one provider")
 	}
 	for _, p := range providers {
-		if p == nil {
+		if isNilProvider(p) {
 			panic("notijet: Failover given a nil provider")
 		}
 	}

@@ -63,7 +63,7 @@ func NewNotifier(opts ...NotifierOption) *Notifier {
 // registered for a channel becomes that channel's default (see SetDefault).
 // Registering a nil provider or a name already in use is an error.
 func (n *Notifier) Register(name string, p Provider) error {
-	if p == nil {
+	if isNilProvider(p) {
 		return Invalid("notifier", "provider is nil")
 	}
 	if name = strings.TrimSpace(name); name == "" {

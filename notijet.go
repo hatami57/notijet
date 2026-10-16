@@ -18,6 +18,7 @@ package notijet
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -58,6 +59,22 @@ type Provider interface {
 	// (an attachment on SMS, a template on a provider without one) with an
 	// ErrUnsupported error rather than silently dropping them.
 	Send(ctx context.Context, msg *Message) (*Result, error)
+}
+
+// isNilProvider also recognizes an interface containing a typed nil pointer.
+// Such a value is not equal to nil at the interface level but cannot safely
+// satisfy any provider method call.
+func isNilProvider(p Provider) bool {
+	if p == nil {
+		return true
+	}
+	v := reflect.ValueOf(p)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // Message is one notification. Which fields matter depends on the channel:

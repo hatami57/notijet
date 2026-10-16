@@ -52,6 +52,8 @@ func TestNotifierDefaultsAndNames(t *testing.T) {
 func TestNotifierErrors(t *testing.T) {
 	n := notijet.NewNotifier(notijet.WithLogger(nil))
 	assert.True(t, errorx.IsBadRequestError(n.Register("x", nil)))
+	var typedNil *memory.Provider
+	assert.True(t, errorx.IsBadRequestError(n.Register("typed-nil", typedNil)))
 	require.NoError(t, n.Register("x", memory.New()))
 	assert.Error(t, n.Register("x", memory.New()), "duplicate name")
 
@@ -164,6 +166,8 @@ func TestFailover(t *testing.T) {
 
 	assert.Panics(t, func() { notijet.Failover() })
 	assert.Panics(t, func() { notijet.Failover(a, nil) })
+	var typedNil *memory.Provider
+	assert.Panics(t, func() { notijet.Failover(typedNil) })
 }
 
 func TestFailoverStopsWhenContextDone(t *testing.T) {
