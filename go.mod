@@ -8,8 +8,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.5
 	github.com/aws/smithy-go v1.28.5
-	github.com/hatami57/microjet/core v0.41.0
-	github.com/hatami57/microjet/gormx/sqlite v0.41.0
+	github.com/hatami57/microjet/core v0.42.0
+	github.com/hatami57/microjet/gormx/sqlite v0.42.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/oauth2 v0.37.0
 	gorm.io/gorm v1.31.1
@@ -67,8 +67,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.79.1
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/hatami57/microjet/gormx v0.41.0
-	github.com/hatami57/microjet/host v0.41.0
+	github.com/hatami57/microjet/gormx v0.42.0
+	github.com/hatami57/microjet/host v0.42.0
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
