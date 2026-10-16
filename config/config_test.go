@@ -15,6 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type nonComparableError []string
+
+func (e nonComparableError) Error() string { return strings.Join([]string(e), ";") }
+
 // testRegistry has a "mem" type with a required and an optional setting.
 func testRegistry() *Registry {
 	return NewRegistry().Register("MEM", func(_ context.Context, s *Settings) (notijet.Provider, error) {
@@ -127,6 +131,15 @@ func TestBuildErrors(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(err.Error(), "label is required"), "a member's error is reported once")
 	_, err = build(t, Spec{"a", map[string]string{"type": "unknownx"}})
 	assert.ErrorContains(t, err, "known: mem")
+
+	registry := NewRegistry().Register("broken", func(context.Context, *Settings) (notijet.Provider, error) {
+		return nil, nonComparableError{"broken"}
+	})
+	_, err = (&Builder{Registry: registry}).Build(context.Background(), []Spec{
+		{Name: "a", Settings: map[string]string{"type": "broken"}},
+		{Name: "f", Settings: map[string]string{"type": "failover", "providers": "a"}},
+	})
+	assert.Error(t, err, "deduplicating a non-comparable factory error must not panic")
 }
 
 func TestSecretReferences(t *testing.T) {

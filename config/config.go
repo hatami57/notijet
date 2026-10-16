@@ -171,7 +171,14 @@ func (b *Builder) Build(ctx context.Context, specs []Spec) (*Built, error) {
 		p, err := build(s.Name)
 		if err != nil {
 			// A failover fails with its member's error; report each once.
-			if !slices.Contains(errs, err) {
+			duplicate := false
+			for _, previous := range errs {
+				if errors.Is(previous, err) || previous.Error() == err.Error() {
+					duplicate = true
+					break
+				}
+			}
+			if !duplicate {
 				errs = append(errs, err)
 			}
 			continue
