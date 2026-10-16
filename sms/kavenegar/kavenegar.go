@@ -13,8 +13,14 @@
 //	    Template: notijet.NewTemplate("verify", "token", "52341"),
 //	})
 //
+// Token values follow Kavenegar's rules, checked before any request: at most
+// 100 characters, no newline or underscore, no space in token, token2 and
+// token3, and at most 5 spaces in token10 and 8 in token20. Values such as
+// names and dates often contain spaces; WithTokenSpaceReplacer substitutes
+// them in the tokens that allow none.
+//
 // Set Message.Data["type"] = "call" to deliver a lookup template as a voice
-// call. Message.ID is forwarded as localid when it is numeric and the message
+// call; Kavenegar calls only with a digits-only token. Message.ID is forwarded as localid when it is numeric and the message
 // has a single recipient.
 package kavenegar
 
@@ -25,6 +31,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hatami57/notijet"
 	"github.com/hatami57/notijet/internal/flexjson"
@@ -45,13 +52,20 @@ const maxReceptors = 200
 // tokens are the lookup parameter names, in positional order.
 var tokens = []string{"token", "token2", "token3", "token10", "token20"}
 
+// maxSpaces is how many spaces each lookup parameter may contain.
+var maxSpaces = map[string]int{"token": 0, "token2": 0, "token3": 0, "token10": 5, "token20": 8}
+
+// maxTokenLen is the most characters a lookup parameter may hold.
+const maxTokenLen = 100
+
 // Provider sends SMS through Kavenegar.
 type Provider struct {
-	apiKey  string
-	sender  string
-	baseURL string
-	client  *httpc.Client
-	hc      *http.Client
+	apiKey        string
+	sender        string
+	baseURL       string
+	spaceReplacer string // replaces spaces in tokens that allow none; empty keeps them
+	client        *httpc.Client
+	hc            *http.Client
 }
 
 // Option configures a Provider.
@@ -60,6 +74,14 @@ type Option func(*Provider)
 // WithSender sets the default sender line, used when Message.From is empty.
 // Without one, Kavenegar sends from the account's default line.
 func WithSender(sender string) Option { return func(p *Provider) { p.sender = sender } }
+
+// WithTokenSpaceReplacer replaces every space in token, token2 and token3 —
+// which Kavenegar rejects — with r before sending, so a value such as a name
+// or a date fits; token10 and token20, which allow a few spaces, are left as
+// they are. Kavenegar also rejects underscores, so pick a character the
+// template renders acceptably (a hyphen, or a zero-width non-joiner U+200C
+// for Persian text).
+func WithTokenSpaceReplacer(r string) Option { return func(p *Provider) { p.spaceReplacer = r } }
 
 // WithHTTPClient sets the HTTP client (default notijet.DefaultHTTPClient()).
 func WithHTTPClient(hc *http.Client) Option { return func(p *Provider) { p.hc = hc } }
@@ -98,12 +120,15 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 	sender, _ := smsutil.Sender(Name, msg, p.sender, false)
 
 	if useTemplate {
-		params, err := lookupParams(msg.Template)
+		params, err := lookupParams(msg.Template, p.spaceReplacer)
 		if err != nil {
 			return nil, err
 		}
 		params.Set("template", msg.Template.ID)
 		if msg.Data["type"] == "call" {
+			if !isDigits(params.Get("token")) {
+				return nil, notijet.InvalidTemplate(Name, "a voice call needs a digits-only token")
+			}
 			params.Set("type", "call")
 		}
 		return notijet.SendBatches(ctx, Name, to, 1, func(ctx context.Context, batch []string) ([]notijet.Receipt, error) {
@@ -124,8 +149,10 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 	})
 }
 
-// lookupParams maps template params onto Kavenegar's token fields.
-func lookupParams(t *notijet.Template) (url.Values, error) {
+// lookupParams maps template params onto Kavenegar's token fields, replacing
+// spaces with spaceReplacer (when set) in the fields that allow none, and
+// checks each value against Kavenegar's token rules.
+func lookupParams(t *notijet.Template, spaceReplacer string) (url.Values, error) {
 	if len(t.Params) > len(tokens) {
 		return nil, notijet.InvalidTemplate(Name, "a lookup template takes at most 5 params (token, token2, token3, token10, token20)")
 	}
@@ -142,9 +169,37 @@ func lookupParams(t *notijet.Template) (url.Values, error) {
 		if byName {
 			name = prm.Name
 		}
-		v.Set(name, prm.Value)
+		value := prm.Value
+		if spaceReplacer != "" && maxSpaces[name] == 0 {
+			value = strings.ReplaceAll(value, " ", spaceReplacer)
+		}
+		if err := checkToken(name, value); err != nil {
+			return nil, err
+		}
+		v.Set(name, value)
 	}
 	return v, nil
+}
+
+// checkToken reports a value Kavenegar would reject for the lookup field
+// name (error 431), so the message fails before any request.
+func checkToken(name, value string) error {
+	fail := func(problem string) error {
+		return notijet.InvalidTemplate(Name, name+" "+problem)
+	}
+	switch spaces := strings.Count(value, " "); {
+	case utf8.RuneCountInString(value) > maxTokenLen:
+		return fail("is longer than " + strconv.Itoa(maxTokenLen) + " characters")
+	case strings.ContainsAny(value, "\r\n"):
+		return fail("contains a newline")
+	case strings.Contains(value, "_"):
+		return fail("contains an underscore, which Kavenegar rejects")
+	case spaces > maxSpaces[name] && maxSpaces[name] == 0:
+		return fail("contains a space, which Kavenegar rejects there (see WithTokenSpaceReplacer, or use token10 or token20)")
+	case spaces > maxSpaces[name]:
+		return fail("contains more than " + strconv.Itoa(maxSpaces[name]) + " spaces")
+	}
+	return nil
 }
 
 type reply struct {

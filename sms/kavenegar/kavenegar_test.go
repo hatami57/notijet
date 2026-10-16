@@ -22,7 +22,7 @@ type call struct {
 }
 
 // server answers every request with status and body, recording the calls.
-func server(t *testing.T, status int, body func(form url.Values) string) (*Provider, *[]call) {
+func server(t *testing.T, status int, body func(form url.Values) string, opts ...Option) (*Provider, *[]call) {
 	t.Helper()
 	var mu sync.Mutex
 	var calls []call
@@ -36,7 +36,7 @@ func server(t *testing.T, status int, body func(form url.Values) string) (*Provi
 		fmt.Fprint(w, body(r.PostForm))
 	}))
 	t.Cleanup(srv.Close)
-	return New("key/1", WithBaseURL(srv.URL+"/v1/"), WithSender("10004346")), &calls
+	return New("key/1", append([]Option{WithBaseURL(srv.URL + "/v1/"), WithSender("10004346")}, opts...)...), &calls
 }
 
 func okReply(form url.Values) string {
@@ -199,4 +199,72 @@ func TestOKWithoutEntries(t *testing.T) {
 	p, _ := server(t, 200, func(url.Values) string { return `{"return":{"status":200,"message":"ok"},"entries":[]}` })
 	_, err := p.Send(context.Background(), &notijet.Message{To: []string{"09121234567"}, Text: "x"})
 	assert.True(t, notijet.IsRetryable(err), "a success without entries is unexpected")
+}
+
+func TestTokenRules(t *testing.T) {
+	p, calls := server(t, 200, okReply)
+	send := func(p *Provider, nameValues ...string) error {
+		_, err := p.Send(context.Background(), &notijet.Message{
+			To:       []string{"09121234567"},
+			Template: notijet.NewTemplate("booking", nameValues...),
+		})
+		return err
+	}
+	bad := map[string][]string{
+		"space in token":           {"token", "Ali Rezaei"},
+		"space in token3":          {"token", "1", "token2", "2", "token3", "a b"},
+		"6 spaces in token10":      {"token10", "a b c d e f g"},
+		"9 spaces in token20":      {"token20", "a b c d e f g h i j"},
+		"underscore":               {"token", "order_1"},
+		"newline":                  {"token20", "line\nbreak"},
+		"101 characters":           {"token", strings.Repeat("۱", 101)},
+		"space by position (code)": {"code", "1", "name", "Ali Rezaei"},
+	}
+	for name, kv := range bad {
+		err := send(p, kv...)
+		assert.ErrorIs(t, err, notijet.ErrTemplate, name)
+		assert.True(t, errorx.IsBadRequestError(err), name)
+	}
+	assert.Empty(t, *calls, "rejected before any request")
+
+	ok := [][]string{
+		{"token", strings.Repeat("۱", 100)},
+		{"token10", "a b c d e f"},
+		{"token20", "۲۴ مهر ۱۴۰۵ ساعت ۱۰:۳۰"},
+	}
+	for _, kv := range ok {
+		require.NoError(t, send(p, kv...), kv)
+	}
+	assert.Len(t, *calls, len(ok))
+}
+
+func TestTokenSpaceReplacer(t *testing.T) {
+	p, calls := server(t, 200, okReply, WithTokenSpaceReplacer("\u200c"))
+	_, err := p.Send(context.Background(), &notijet.Message{
+		To:       []string{"09121234567"},
+		Template: notijet.NewTemplate("booking", "token", "علی رضایی", "token2", "سه شنبه", "token10", "۲۴ مهر ساعت ۱۰"),
+	})
+	require.NoError(t, err)
+	f := (*calls)[0].form
+	assert.Equal(t, "علی\u200cرضایی", f.Get("token"))
+	assert.Equal(t, "سه\u200cشنبه", f.Get("token2"))
+	assert.Equal(t, "۲۴ مهر ساعت ۱۰", f.Get("token10"), "token10 keeps its spaces")
+
+	p, _ = server(t, 200, okReply, WithTokenSpaceReplacer("_"))
+	_, err = p.Send(context.Background(), &notijet.Message{
+		To:       []string{"09121234567"},
+		Template: notijet.NewTemplate("booking", "token", "a b"),
+	})
+	assert.ErrorIs(t, err, notijet.ErrTemplate, "the replaced value is still checked")
+}
+
+func TestCallNeedsDigitsOnlyToken(t *testing.T) {
+	p, calls := server(t, 200, okReply)
+	_, err := p.Send(context.Background(), &notijet.Message{
+		To:       []string{"09121234567"},
+		Template: notijet.NewTemplate("verify", "token", "ab12"),
+		Data:     map[string]string{"type": "call"},
+	})
+	assert.ErrorIs(t, err, notijet.ErrTemplate)
+	assert.Empty(t, *calls)
 }
