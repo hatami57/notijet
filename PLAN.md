@@ -489,14 +489,27 @@ webhooks per provider (parsing DLR callbacks into a common event), more
 providers (MessageBird, AWS End User Messaging, Mailjet, Microsoft Teams,
 APNs direct), per-provider rate limiting, and a release tag.
 
-go.mod depends on the published microjet modules (v0.41.0); the local
+go.mod depends on the published microjet modules (v0.42.0); the local
 `../microjet` replace directives were removed after step 12.
+
+Follow-up from planning notijet's use in consulter (todo.md, all done):
+`Queue.Cancel` with status `cancelled`; Enqueue/Cancel join gorm
+transactions through microjet v0.42.0's `gormx.WithTx`; `config/builtin`
+split so it links neither the AWS SDK nor OAuth2 (`builtin/aws`,
+`builtin/google`, `builtin/all`; a guard test runs `go list -deps`), and
+`resend` stopped importing `internal/awsutil` (ValidTag moved to
+`emailutil`); Kavenegar lookup tokens checked before sending, with
+`WithTokenSpaceReplacer` / `token_space_replacer`.
 
 ## Provider API notes (verified during step 0)
 
 - Kavenegar: `https://api.kavenegar.com/v1/{API-KEY}/sms/send.json` (receptor
   comma-separated ≤200, message, sender, localid) and `verify/lookup.json`
   (receptor, token, token2, token3, token10, token20, template, type=sms|call).
+  Token rules (kavenegar.com/rest.html): every token ≤100 characters; token,
+  token2, token3 without spaces; token10 ≤5 spaces, token20 ≤8; error 431 for
+  a newline, space, underscore or separator in a token; a call (type=call)
+  needs a digits-only token (else 428).
   Reply `{"return":{"status":200,"message":""},"entries":[{"messageid","status",
   "statustext","receptor","cost"}]}`; errors use HTTP status = return.status:
   401/403 credentials, 411 receptor, 412 sender, 418 credit, 424/431/432

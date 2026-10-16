@@ -31,7 +31,7 @@ Requires Go 1.26.
 
 | Channel | Package | Constructor | Provider templates | Notes |
 | --- | --- | --- | --- | --- |
-| SMS | `sms/kavenegar` | `kavenegar.New(apiKey, ...)` | verify/lookup (`token`…`token20`) | 200 recipients per request; voice OTP |
+| SMS | `sms/kavenegar` | `kavenegar.New(apiKey, ...)` | verify/lookup (`token`…`token20`) | 200 recipients per request; voice OTP; token rules checked before sending, optional space replacer |
 | SMS | `sms/smsir` | `smsir.New(apiKey, ...)` | verify (numeric template ID) | Iranian mobiles; bulk of 100 |
 | SMS | `sms/melipayamak` | `melipayamak.New(user, pass, ...)` | BaseServiceNumber (`bodyId`) | Payamak Panel resellers via `WithBaseURL` |
 | SMS | `sms/ghasedak` | `ghasedak.New(apiKey, ...)` | OTP templates | voice OTP |
@@ -181,6 +181,22 @@ ones and exhausted retries are kept as `failed` (`Retry` requeues one); a
 partly delivered message is never resent. `At(t)` schedules, `Via(name)` picks
 a provider, and a fixed `Message.ID` makes enqueueing idempotent.
 
+`Cancel(ctx, id)` stops a message that is still waiting — a scheduled reminder
+whose booking was cancelled — and keeps it as `cancelled`; like `Enqueue`, it
+joins the transaction in the context. Code that opens transactions with gorm
+directly attaches them with microjet's `gormx.WithTx`:
+
+```go
+db.Transaction(func(tx *gorm.DB) error {
+    ctx := gormx.WithTx(ctx, tx)
+    if err := tx.Model(&booking).Update("status", "cancelled").Error; err != nil {
+        return err
+    }
+    _, err := q.Cancel(ctx, "reminder-"+booking.ID) // commits with the booking
+    return err
+})
+```
+
 ## microjet module and configuration
 
 ```go
@@ -209,9 +225,19 @@ providers = "otp, otp-backup"
 default = true
 ```
 
-`config/builtin` documents every provider type and its settings; unknown keys
-are errors, so a typo cannot silently drop a setting. Outside microjet, use
-`config.Builder` directly with any map of settings.
+`config/builtin` registers every provider that needs no cloud SDK and
+documents each type's settings; the AWS types (`sns`, `ses`) are in
+`config/builtin/aws` and the Google ones (`gmail`, `fcm`) in
+`config/builtin/google`, so an app links the AWS SDK or OAuth2 only when it
+uses them. `config/builtin/all.Registry()` has every type:
+
+```go
+module.WithConfig(aws.Register(builtin.Registry())) // builtin + sns, ses
+module.WithConfig(all.Registry())                   // every type
+```
+
+Unknown keys are errors, so a typo cannot silently drop a setting. Outside
+microjet, use `config.Builder` directly with any map of settings.
 
 ## Testing
 
