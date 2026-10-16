@@ -127,11 +127,11 @@ func FaultCode(provider, code, message string, inner error) *errorx.Error {
 // IsRetryable reports whether sending the same message again may succeed: a
 // fault (transport failure, 5xx, unreadable reply) or a rate limit. Bad input,
 // unsupported features and provider refusals are permanent, and so is a
-// cancelled context — the caller gave up — and a *PartialError, since sending
+// cancelled or deadline-exceeded context — the caller gave up — and a *PartialError, since sending
 // again would duplicate what was delivered. A plain error that is not an
 // errorx.Error (from a custom provider) is treated as retryable.
 func IsRetryable(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	if _, partial := errors.AsType[*PartialError](err); partial {

@@ -83,6 +83,7 @@ func TestErrorsCarryCategoryAndSentinel(t *testing.T) {
 	assert.ErrorIs(t, InvalidSender("x", "bad"), ErrInvalidSender)
 	assert.False(t, IsRetryable(nil))
 	assert.False(t, IsRetryable(context.Canceled))
+	assert.False(t, IsRetryable(context.DeadlineExceeded))
 	assert.True(t, IsRetryable(errors.New("custom provider failure")))
 	assert.Equal(t, "", ProviderCode(errors.New("plain")))
 }
