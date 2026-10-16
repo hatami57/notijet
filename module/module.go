@@ -243,6 +243,14 @@ func (l *lazyStore) Get(ctx context.Context, id string) (*queue.Record, error) {
 	return s.Get(ctx, id)
 }
 
+func (l *lazyStore) Cancel(ctx context.Context, id string, now time.Time) (bool, error) {
+	s, err := l.get()
+	if err != nil {
+		return false, err
+	}
+	return s.Cancel(ctx, id, now)
+}
+
 func (l *lazyStore) Requeue(ctx context.Context, id string, now time.Time) (bool, error) {
 	s, err := l.get()
 	if err != nil {

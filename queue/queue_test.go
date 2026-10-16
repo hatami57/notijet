@@ -469,3 +469,174 @@ func TestBackoffBoundsAndOptions(t *testing.T) {
 	assert.NotNil(t, q.now)
 	assert.NotNil(t, q.log)
 }
+
+func TestCancelScheduledMessage(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	msg := sms("0912")
+	msg.ID = "reminder-42"
+	_, err := f.q.Enqueue(ctx, notijet.ChannelSMS, msg, At(t0.Add(24*time.Hour)))
+	require.NoError(t, err)
+
+	f.clock.Add(time.Hour)
+	ok, err := f.q.Cancel(ctx, "reminder-42")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	rec, _ := f.q.Get(ctx, "reminder-42")
+	assert.Equal(t, StatusCancelled, rec.Status)
+	assert.True(t, rec.Done())
+	assert.Equal(t, t0.Add(time.Hour), rec.UpdatedAt.UTC())
+
+	f.clock.Add(48 * time.Hour)
+	n, err := f.q.Process(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, n)
+	assert.Zero(t, f.sms.Len(), "a cancelled message is never sent")
+
+	ok, err = f.q.Cancel(ctx, "reminder-42")
+	require.NoError(t, err)
+	assert.False(t, ok, "already cancelled")
+	ok, err = f.q.Retry(ctx, "reminder-42")
+	require.NoError(t, err)
+	assert.False(t, ok, "Retry does not revive a cancelled message")
+	_, err = f.q.Enqueue(ctx, notijet.ChannelSMS, msg)
+	require.NoError(t, err)
+	rec, _ = f.q.Get(ctx, "reminder-42")
+	assert.Equal(t, StatusCancelled, rec.Status, "enqueueing the same ID again is still a no-op")
+}
+
+func TestCancelMessageWaitingForRetry(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.sms.FailNext(notijet.Fault("memory", "down", nil))
+	id, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("0912"))
+	_, err := f.q.Process(ctx)
+	require.NoError(t, err)
+	rec, _ := f.q.Get(ctx, id)
+	require.Equal(t, StatusQueued, rec.Status)
+
+	ok, err := f.q.Cancel(ctx, id)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	f.clock.Add(time.Hour)
+	n, _ := f.q.Process(ctx)
+	assert.Zero(t, n)
+	rec, _ = f.q.Get(ctx, id)
+	assert.Equal(t, StatusCancelled, rec.Status)
+	assert.Equal(t, 1, rec.Attempts)
+}
+
+func TestCancelOnlyQueuedMessages(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	ok, err := f.q.Cancel(ctx, "missing")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	sent, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("1"))
+	_, err = f.q.Process(ctx)
+	require.NoError(t, err)
+	ok, err = f.q.Cancel(ctx, sent)
+	require.NoError(t, err)
+	assert.False(t, ok, "a sent message cannot be cancelled")
+
+	inFlight, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("2"))
+	claimed, err := f.store.Claim(ctx, t0, time.Minute, 10)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	ok, err = f.q.Cancel(ctx, inFlight)
+	require.NoError(t, err)
+	assert.False(t, ok, "a message being sent cannot be cancelled")
+	rec, _ := f.q.Get(ctx, inFlight)
+	assert.Equal(t, StatusSending, rec.Status)
+}
+
+func TestCancelJoinsTransaction(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	repo := gormx.NewBaseRepository(f.db)
+	boom := errors.New("booking update failed")
+	id, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("0912"), At(t0.Add(time.Hour)))
+
+	err := repo.RunTx(ctx, func(ctx context.Context) error {
+		if ok, err := f.q.Cancel(ctx, id); err != nil || !ok {
+			return fmt.Errorf("cancel: %v %v", ok, err)
+		}
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	rec, _ := f.q.Get(ctx, id)
+	assert.Equal(t, StatusQueued, rec.Status, "the cancellation rolled back with the transaction")
+
+	err = repo.RunTx(ctx, func(ctx context.Context) error {
+		_, err := f.q.Cancel(ctx, id)
+		return err
+	})
+	require.NoError(t, err)
+	rec, _ = f.q.Get(ctx, id)
+	assert.Equal(t, StatusCancelled, rec.Status)
+}
+
+// TestQueueJoinsGormTransactionViaWithTx covers apps that open transactions
+// with gorm directly: gormx.WithTx puts the transaction in the context, and
+// Enqueue and Cancel join it.
+func TestQueueJoinsGormTransactionViaWithTx(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	boom := errors.New("rollback")
+	scheduled, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("1"), At(t0.Add(time.Hour)))
+
+	err := f.db.Transaction(func(tx *gorm.DB) error {
+		ctx := gormx.WithTx(ctx, tx)
+		msg := sms("2")
+		msg.ID = "in-tx"
+		if _, err := f.q.Enqueue(ctx, notijet.ChannelSMS, msg); err != nil {
+			return err
+		}
+		if _, err := f.q.Cancel(ctx, scheduled); err != nil {
+			return err
+		}
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	rec, _ := f.q.Get(ctx, "in-tx")
+	assert.Nil(t, rec, "the enqueue rolled back with the gorm transaction")
+	rec, _ = f.q.Get(ctx, scheduled)
+	assert.Equal(t, StatusQueued, rec.Status, "so did the cancellation")
+
+	err = f.db.Transaction(func(tx *gorm.DB) error {
+		ctx := gormx.WithTx(ctx, tx)
+		msg := sms("2")
+		msg.ID = "in-tx"
+		_, err := f.q.Enqueue(ctx, notijet.ChannelSMS, msg)
+		return err
+	})
+	require.NoError(t, err)
+	rec, _ = f.q.Get(ctx, "in-tx")
+	assert.NotNil(t, rec, "committed with the gorm transaction")
+}
+
+func TestRetentionPrunesCancelled(t *testing.T) {
+	f := setup(t, Retention(time.Hour))
+	ctx := context.Background()
+	id, _ := f.q.Enqueue(ctx, notijet.ChannelSMS, sms("1"), At(t0.Add(48*time.Hour)))
+	ok, err := f.q.Cancel(ctx, id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	f.clock.Add(2 * time.Hour)
+	_, err = f.q.Process(ctx)
+	require.NoError(t, err)
+	rec, _ := f.q.Get(ctx, id)
+	assert.Nil(t, rec, "pruned")
+}
+
+func TestCancelStoreError(t *testing.T) {
+	f := setup(t)
+	sqlDB, err := f.db.DB()
+	require.NoError(t, err)
+	sqlDB.Close()
+	ok, err := f.q.Cancel(context.Background(), "x")
+	assert.Error(t, err)
+	assert.False(t, ok)
+}

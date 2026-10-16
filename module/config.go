@@ -29,7 +29,8 @@ const ConfigSection = "notijet.providers"
 
 // WithConfig builds providers from the ConfigSection of the app config with
 // the factories in registry — config/builtin's Registry() for the built-in
-// providers — and registers them in the Notifier after those added with
+// providers without cloud SDKs, config/builtin/all's for every built-in one —
+// and registers them in the Notifier after those added with
 // WithProvider. Configure the Notifier's defaults with `default = true` in a
 // table or with WithDefault.
 func WithConfig(registry *config.Registry) Option {

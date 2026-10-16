@@ -12,12 +12,23 @@
 //	})
 //	go q.Run(ctx) // or let the microjet module run the worker
 //
+// Code that opens transactions with gorm directly joins them the same way
+// through gormx.WithTx:
+//
+//	db.Transaction(func(tx *gorm.DB) error {
+//	    ...
+//	    _, err := q.Enqueue(gormx.WithTx(ctx, tx), notijet.ChannelSMS, msg)
+//	    return err
+//	})
+//
 // Delivery goes through a notijet.Notifier, so provider choice, failover,
 // hooks and logging are the Notifier's. Retryable failures (see
 // notijet.IsRetryable) are retried with exponential backoff up to
 // MaxAttempts; permanent failures, and messages that ran out of attempts, are
 // marked failed and kept for inspection (Retry requeues one). A message that
-// was partly delivered (notijet.PartialError) is never resent.
+// was partly delivered (notijet.PartialError) is never resent. Cancel stops a
+// message that is still waiting — a scheduled reminder whose booking was
+// cancelled, say — in the same transaction as the change that voids it.
 //
 // Workers claim messages with a lease, one conditional UPDATE per message, so
 // any number of workers — in one process or many replicas — share a queue on
@@ -30,6 +41,7 @@ package queue
 
 import (
 	"encoding/json"
+	"slices"
 	"time"
 
 	"github.com/hatami57/notijet"
@@ -49,6 +61,9 @@ const (
 	StatusPartial Status = "partial"
 	// StatusFailed failed permanently or ran out of attempts.
 	StatusFailed Status = "failed"
+	// StatusCancelled was cancelled before a worker claimed it; it is never
+	// sent.
+	StatusCancelled Status = "cancelled"
 )
 
 // Record is a queued message and its delivery state. The GORM tags serve the
@@ -102,5 +117,8 @@ func (r *Record) DecodeReceipts() ([]notijet.Receipt, error) {
 
 // Done reports whether the record reached a final state.
 func (r *Record) Done() bool {
-	return r.Status == StatusSent || r.Status == StatusPartial || r.Status == StatusFailed
+	return slices.Contains(finalStatuses, r.Status)
 }
+
+// finalStatuses are the states a record never leaves on its own.
+var finalStatuses = []Status{StatusSent, StatusPartial, StatusFailed, StatusCancelled}

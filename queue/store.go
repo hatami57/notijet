@@ -32,6 +32,11 @@ type Store interface {
 	// attempts reset. It reports false when there is no such record in a
 	// final failed state.
 	Requeue(ctx context.Context, id string, now time.Time) (bool, error)
+	// Cancel marks a queued record (waiting for its first attempt or for a
+	// retry) cancelled at now, joining the transaction in ctx when there is
+	// one. It reports false when there is no queued record with id: it was
+	// never enqueued, already finished, or is being sent right now.
+	Cancel(ctx context.Context, id string, now time.Time) (bool, error)
 	// Prune deletes final records last updated before before and returns how
 	// many it deleted.
 	Prune(ctx context.Context, before time.Time) (int64, error)
@@ -44,7 +49,8 @@ type Store interface {
 var ErrDuplicate = errors.New("queue: a message with this ID was enqueued concurrently")
 
 // DBStore is the gormx-backed Store. It goes through gormx tables, so Insert
-// inside gormx BaseRepository.RunTx joins that transaction.
+// and Cancel join the transaction in the context: one opened by gormx
+// BaseRepository.RunTx, or a gorm transaction attached with gormx.WithTx.
 type DBStore struct {
 	db    *gorm.DB
 	table *gormx.Table[Record]
@@ -150,7 +156,16 @@ func (s *DBStore) Requeue(ctx context.Context, id string, now time.Time) (bool, 
 	return n == 1, err
 }
 
+// Cancel implements Store.
+func (s *DBStore) Cancel(ctx context.Context, id string, now time.Time) (bool, error) {
+	n, err := s.table.UpdateMap(ctx, map[string]any{
+		"status":     StatusCancelled,
+		"updated_at": now,
+	}, "id = ? AND status = ?", id, StatusQueued)
+	return n == 1, err
+}
+
 // Prune implements Store.
 func (s *DBStore) Prune(ctx context.Context, before time.Time) (int64, error) {
-	return s.table.Delete(ctx, "status IN ? AND updated_at < ?", []Status{StatusSent, StatusPartial, StatusFailed}, before)
+	return s.table.Delete(ctx, "status IN ? AND updated_at < ?", finalStatuses, before)
 }

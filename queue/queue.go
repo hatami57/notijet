@@ -114,7 +114,7 @@ func Backoff(initial, maxDelay time.Duration) Option {
 	}
 }
 
-// Retention deletes sent, partial and failed messages last updated longer
+// Retention deletes sent, partial, failed and cancelled messages last updated longer
 // than d ago, at the end of each pass. Zero (the default) keeps them.
 func Retention(d time.Duration) Option {
 	return func(q *Queue) { q.retention = max(d, 0) }
@@ -178,8 +178,9 @@ func At(t time.Time) EnqueueOption { return func(e *enqueue) { e.at = t } }
 
 // Enqueue stores msg for delivery through the default provider of ch (or the
 // Via provider) and returns its ID: msg.ID when set, otherwise a generated
-// one. Called with a context carrying a gormx transaction, the default store
-// joins it, so the message is sent only if that transaction commits.
+// one. Called with a context carrying a gormx transaction — from RunTx, or
+// a gorm transaction attached with gormx.WithTx — the default store joins it,
+// so the message is sent only if that transaction commits.
 // Enqueueing an ID that is already queued is a no-op that returns the ID.
 //
 // The provider must be registered in the Notifier now; the message itself is
@@ -251,6 +252,23 @@ func (q *Queue) Retry(ctx context.Context, id string) (bool, error) {
 		q.signal()
 	}
 	return ok, err
+}
+
+// Cancel stops a message that has not been sent yet — one waiting for its
+// first attempt (an At message, say) or for a retry — and keeps it as
+// cancelled. Called with a context carrying a gormx transaction, it joins
+// it, so the cancellation commits with the change that causes it. It reports
+// false when there is no such message: it was never enqueued, was already
+// sent, failed or cancelled, or a worker is sending it right now.
+//
+// Cancel a message by the ID Enqueue returned, or set Message.ID to one you
+// can derive later (such as "reminder-<booking id>").
+func (q *Queue) Cancel(ctx context.Context, id string) (bool, error) {
+	ok, err := q.store.Cancel(ctx, id, q.now().UTC())
+	if err != nil {
+		return false, errorx.NewInternalError(Name, "cancelling message failed").WithInner(err)
+	}
+	return ok, nil
 }
 
 // Run delivers due messages until ctx is cancelled: a pass at once, then one

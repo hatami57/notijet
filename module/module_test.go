@@ -154,6 +154,8 @@ func TestLazyStoreBeforeSetup(t *testing.T) {
 	assert.Error(t, err)
 	_, err = l.Requeue(ctx, "x", time.Now())
 	assert.Error(t, err)
+	_, err = l.Cancel(ctx, "x", time.Now())
+	assert.Error(t, err)
 	_, err = l.Prune(ctx, time.Now())
 	assert.Error(t, err)
 
@@ -162,6 +164,9 @@ func TestLazyStoreBeforeSetup(t *testing.T) {
 	require.NoError(t, inner.Migrate())
 	l.inner = inner
 	ok, err := l.Requeue(ctx, "x", time.Now())
+	assert.NoError(t, err)
+	assert.False(t, ok)
+	ok, err = l.Cancel(ctx, "x", time.Now())
 	assert.NoError(t, err)
 	assert.False(t, ok)
 	n, err := l.Prune(ctx, time.Now())
