@@ -78,6 +78,9 @@ type FailoverError struct {
 }
 
 func (e *FailoverError) Error() string {
+	if e == nil {
+		return "<nil failover error>"
+	}
 	var b strings.Builder
 	b.WriteString("all ")
 	b.WriteString(strconv.Itoa(len(e.Errors)))
@@ -86,14 +89,18 @@ func (e *FailoverError) Error() string {
 		if i > 0 {
 			b.WriteString("; ")
 		}
-		b.WriteString(err.Error())
+		if err == nil {
+			b.WriteString("<nil error>")
+		} else {
+			b.WriteString(err.Error())
+		}
 	}
 	return b.String()
 }
 
 // Unwrap returns the representative error described on FailoverError.
 func (e *FailoverError) Unwrap() error {
-	if len(e.Errors) == 0 {
+	if e == nil || len(e.Errors) == 0 {
 		return nil
 	}
 	last := e.Errors[len(e.Errors)-1]

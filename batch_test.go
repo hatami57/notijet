@@ -69,3 +69,15 @@ func TestFailoverStopsOnPartialError(t *testing.T) {
 	assert.Equal(t, 0, c.Calls())
 	assert.False(t, notijet.IsRetryable(err), "a partly delivered chain must not be retried whole")
 }
+
+func TestCompositeErrorsAreNilSafe(t *testing.T) {
+	var partial *notijet.PartialError
+	assert.Equal(t, "<nil partial error>", partial.Error())
+	assert.Nil(t, partial.Unwrap())
+	assert.Contains(t, (&notijet.PartialError{}).Error(), "<nil error>")
+
+	var failover *notijet.FailoverError
+	assert.Equal(t, "<nil failover error>", failover.Error())
+	assert.Nil(t, failover.Unwrap())
+	assert.Contains(t, (&notijet.FailoverError{Errors: []error{nil}}).Error(), "<nil error>")
+}

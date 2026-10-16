@@ -20,14 +20,26 @@ type PartialError struct {
 }
 
 func (e *PartialError) Error() string {
+	if e == nil {
+		return "<nil partial error>"
+	}
 	sent := 0
 	if e.Result != nil {
 		sent = len(e.Result.Receipts)
 	}
-	return "partially sent (" + strconv.Itoa(sent) + " receipts) before failing: " + e.Err.Error()
+	detail := "<nil error>"
+	if e.Err != nil {
+		detail = e.Err.Error()
+	}
+	return "partially sent (" + strconv.Itoa(sent) + " receipts) before failing: " + detail
 }
 
-func (e *PartialError) Unwrap() error { return e.Err }
+func (e *PartialError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
 
 // SendBatches is the loop behind providers whose API takes a limited number of
 // recipients per request. It calls send with consecutive groups of at most size
