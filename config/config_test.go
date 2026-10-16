@@ -91,6 +91,11 @@ func unwrapMemory(t *testing.T, b *Built, name string) *memory.Provider {
 }
 
 func TestBuildErrors(t *testing.T) {
+	{
+		_, err := (&Builder{}).Build(context.Background(), []Spec{{Name: "x", Settings: map[string]string{"type": "mem"}}})
+		assert.ErrorContains(t, err, "provider registry is nil")
+	}
+
 	cases := map[string][]Spec{
 		"no name":          {{"", map[string]string{"type": "mem"}}},
 		"duplicate":        {{"a", map[string]string{"type": "mem", "label": "x"}}, {"a", map[string]string{"type": "mem", "label": "x"}}},

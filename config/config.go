@@ -124,6 +124,9 @@ func (b *Built) Register(n *notijet.Notifier) error {
 // in any order; a reference to an unknown name or a cycle is an error. All
 // errors are reported together.
 func (b *Builder) Build(ctx context.Context, specs []Spec) (*Built, error) {
+	if b == nil || b.Registry == nil {
+		return nil, invalid("", "provider registry is nil")
+	}
 	byName := map[string]Spec{}
 	for _, s := range specs {
 		if s.Name == "" {
