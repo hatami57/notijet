@@ -72,3 +72,10 @@ func TestDisplay(t *testing.T) {
 	assert.Equal(t, []string{"a@x.io"}, DisplayList([]*mail.Address{{Address: "a@x.io"}}))
 	assert.Equal(t, []notijet.Receipt{{MessageID: "id", Status: "queued"}}, Receipt("id", "queued"))
 }
+
+func TestValidTag(t *testing.T) {
+	assert.True(t, ValidTag("order_id-1"))
+	for _, s := range []string{"", "a b", "a.b", "علی", string(make([]byte, 257))} {
+		assert.False(t, ValidTag(s), s)
+	}
+}

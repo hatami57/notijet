@@ -97,3 +97,16 @@ func DisplayList(list []*mail.Address) []string {
 func Receipt(id, status string) []notijet.Receipt {
 	return []notijet.Receipt{{MessageID: id, Status: status}}
 }
+
+// ValidTag reports whether s may be an SES or Resend tag name or value: 1–256 ASCII letters, digits, '_' or '-'.
+func ValidTag(s string) bool {
+	if s == "" || len(s) > 256 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}

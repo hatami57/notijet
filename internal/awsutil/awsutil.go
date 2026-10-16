@@ -44,17 +44,3 @@ func Classify(provider string, err error) (apiErr smithy.APIError, mapped error)
 	}
 	return apiErr, nil
 }
-
-// ValidTag reports whether s may be an SNS/SES/Resend-style tag name or
-// value: 1–256 ASCII letters, digits, '_' or '-'.
-func ValidTag(s string) bool {
-	if s == "" || len(s) > 256 {
-		return false
-	}
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
-			return false
-		}
-	}
-	return true
-}

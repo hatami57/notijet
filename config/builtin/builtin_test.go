@@ -2,17 +2,11 @@ package builtin
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -78,10 +72,10 @@ func buildOne(t *testing.T, name string, settings map[string]string) (notijet.Pr
 
 func TestTypes(t *testing.T) {
 	assert.Equal(t, []string{
-		"bale", "brevo", "discord", "fcm", "ghasedak", "gmail", "infobip", "ippanel", "kavenegar",
+		"bale", "brevo", "discord", "ghasedak", "infobip", "ippanel", "kavenegar",
 		"logger", "mailgun", "melipayamak", "memory", "plivo", "postmark", "resend", "sendgrid",
-		"ses", "slack", "smsir", "smtp", "sns", "telegram", "twilio", "vonage", "webhook",
-	}, Registry().Types())
+		"slack", "smsir", "smtp", "telegram", "twilio", "vonage", "webhook",
+	}, Registry().Types(), "no type that needs a cloud SDK")
 }
 
 var (
@@ -239,7 +233,7 @@ func TestRequiredSettings(t *testing.T) {
 		"ippanel": "api_key", "twilio": "account_sid", "vonage": "api_secret", "plivo": "auth_token",
 		"infobip": "base_url", "sendgrid": "api_key", "mailgun": "domain", "postmark": "server_token",
 		"resend": "api_key", "brevo": "api_key", "telegram": "bot_token", "bale": "bot_token",
-		"slack": "webhook_url", "discord": "webhook_url", "fcm": "project_id", "webhook": "url",
+		"slack": "webhook_url", "discord": "webhook_url", "webhook": "url",
 	}
 	for typ, key := range cases {
 		_, err := buildOne(t, "x", settings("type", typ))
@@ -272,124 +266,34 @@ func TestDevProviders(t *testing.T) {
 	assert.Equal(t, notijet.ChannelSMS, p.Channel())
 }
 
-func TestAWSProviders(t *testing.T) {
-	var mu sync.Mutex
-	var seen []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		seen = append(seen, r.URL.Path+" "+r.Header.Get("Authorization")+" "+string(body))
-		mu.Unlock()
-		if strings.HasPrefix(r.URL.Path, "/v2/email") {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"MessageId":"ses-1"}`)
-			return
+// TestNoCloudSDKDependency keeps the package light: the AWS SDK and OAuth2
+// belong to config/builtin/aws and config/builtin/google, and a provider
+// package importing them would silently pull them back in here.
+func TestNoCloudSDKDependency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs go list")
+	}
+	gobin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go tool not found")
+	}
+	out, err := exec.Command(gobin, "list", "-deps", ".").Output()
+	require.NoError(t, err)
+	for _, pkg := range strings.Fields(string(out)) {
+		for _, banned := range []string{"github.com/aws/", "golang.org/x/oauth2", "cloud.google.com/"} {
+			assert.False(t, strings.HasPrefix(pkg, banned), "config/builtin depends on %s", pkg)
 		}
-		w.Header().Set("Content-Type", "text/xml")
-		fmt.Fprint(w, `<PublishResponse xmlns="http://sns.amazonaws.com/doc/2010-03-31/"><PublishResult><MessageId>sns-1</MessageId></PublishResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></PublishResponse>`)
-	}))
-	defer srv.Close()
-	creds := []string{"region", "eu-west-1", "access_key_id", "AKIDTEST", "secret_access_key", "s3cr3t", "endpoint", srv.URL}
-
-	p, err := buildOne(t, "sns", settings(append([]string{"type", "sns", "sender", "Acme", "sms_type", "Promotional", "timeout", "5s"}, creds...)...))
-	require.NoError(t, err)
-	res, err := p.Send(context.Background(), intlMsg())
-	require.NoError(t, err)
-	assert.Equal(t, "sns-1", res.MessageID())
-
-	p, err = buildOne(t, "ses", settings(append([]string{"type", "ses", "from", "a@acme.test", "configuration_set", "events"}, creds...)...))
-	require.NoError(t, err)
-	res, err = p.Send(context.Background(), mailMsg())
-	require.NoError(t, err)
-	assert.Equal(t, "ses-1", res.MessageID())
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, seen, 2)
-	assert.Contains(t, seen[0], "Credential=AKIDTEST/", "static credentials sign the request")
-	assert.Contains(t, seen[0], "AWS.SNS.SMS.SenderID")
-	assert.Contains(t, seen[1], `"ConfigurationSetName":"events"`)
-
-	_, err = buildOne(t, "sns", settings("type", "sns", "access_key_id", "x"))
-	assert.ErrorContains(t, err, "go together")
-	_, err = buildOne(t, "sns", settings("type", "sns", "sms_type", "urgent"))
-	assert.Error(t, err)
-	t.Setenv("AWS_CONFIG_FILE", filepath.Join(t.TempDir(), "missing"))
-	t.Setenv("AWS_PROFILE", "no-such-profile")
-	_, err = buildOne(t, "ses", settings("type", "ses"))
-	assert.ErrorContains(t, err, "loading AWS configuration")
-	_, err = buildOne(t, "sns", settings("type", "sns"))
-	assert.ErrorContains(t, err, "loading AWS configuration")
+	}
 }
 
-// serviceAccount returns a service account key whose token_uri is a fake
-// OAuth server issuing "test-token".
-func serviceAccount(t *testing.T) []byte {
-	t.Helper()
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+func TestKavenegarTokenSpaceReplacer(t *testing.T) {
+	rec := newRecorder(t, `{"return":{"status":200,"message":"ok"},"entries":[{"messageid":1,"receptor":"09121234567"}]}`)
+	p, err := buildOne(t, "otp", settings("type", "kavenegar", "api_key", "k", "base_url", rec.srv.URL, "token_space_replacer", "-"))
 	require.NoError(t, err)
-	der, err := x509.MarshalPKCS8PrivateKey(key)
-	require.NoError(t, err)
-	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, r.ParseForm())
-		assert.Equal(t, "urn:ietf:params:oauth:grant-type:jwt-bearer", r.PostForm.Get("grant_type"))
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"access_token":"test-token","token_type":"Bearer","expires_in":3600}`)
-	}))
-	t.Cleanup(oauth.Close)
-	sa, err := json.Marshal(map[string]string{
-		"type":           "service_account",
-		"project_id":     "p",
-		"private_key_id": "k1",
-		"private_key":    string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})),
-		"client_email":   "notijet@p.iam.gserviceaccount.com",
-		"client_id":      "1",
-		"token_uri":      oauth.URL,
+	_, err = p.Send(context.Background(), &notijet.Message{
+		To:       []string{"09121234567"},
+		Template: notijet.NewTemplate("booking", "token", "Ali Rezaei"),
 	})
 	require.NoError(t, err)
-	return sa
-}
-
-func TestGoogleProviders(t *testing.T) {
-	sa := serviceAccount(t)
-	file := filepath.Join(t.TempDir(), "sa.json")
-	require.NoError(t, os.WriteFile(file, sa, 0o600))
-
-	rec := newRecorder(t, `{"id":"g1","name":"projects/p/messages/1"}`)
-	p, err := buildOne(t, "g", settings("type", "gmail", "credentials_json", string(sa), "user", "ali@acme.test",
-		"from", "ali@acme.test", "base_url", rec.srv.URL, "timeout", "5s"))
-	require.NoError(t, err)
-	res, err := p.Send(context.Background(), mailMsg())
-	require.NoError(t, err)
-	assert.Equal(t, "g1", res.MessageID())
-	assert.Contains(t, rec.last(), "Authorization: Bearer test-token")
-	assert.Contains(t, rec.last(), "/users/ali@acme.test/messages/send")
-
-	p, err = buildOne(t, "f", settings("type", "fcm", "project_id", "p", "credentials_file", file, "base_url", rec.srv.URL))
-	require.NoError(t, err)
-	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"tok"}, Text: "hi"})
-	require.NoError(t, err)
-	assert.Contains(t, rec.last(), "/v1/projects/p/messages:send")
-	assert.Contains(t, rec.last(), "Authorization: Bearer test-token")
-
-	// Application Default Credentials.
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", file)
-	p, err = buildOne(t, "f", settings("type", "fcm", "project_id", "p", "base_url", rec.srv.URL))
-	require.NoError(t, err)
-	_, err = p.Send(context.Background(), &notijet.Message{To: []string{"tok"}, Text: "hi"})
-	require.NoError(t, err)
-
-	bad := map[string][]string{
-		"both":         {"type", "fcm", "project_id", "p", "credentials_json", string(sa), "credentials_file", file},
-		"missing file": {"type", "fcm", "project_id", "p", "credentials_file", "/nonexistent.json"},
-		"bad json":     {"type", "fcm", "project_id", "p", "credentials_json", "{"},
-		"user no key":  {"type", "gmail", "user", "ali@acme.test"},
-	}
-	for name, kv := range bad {
-		_, err := buildOne(t, "x", settings(kv...))
-		assert.Error(t, err, name)
-	}
-	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/nonexistent.json")
-	_, err = buildOne(t, "x", settings("type", "fcm", "project_id", "p"))
-	assert.ErrorContains(t, err, "no credentials")
+	assert.Contains(t, rec.last(), "token=Ali-Rezaei")
 }

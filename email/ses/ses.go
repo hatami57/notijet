@@ -99,7 +99,7 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 	}
 	for _, k := range slices.Sorted(maps.Keys(msg.Metadata)) {
 		v := msg.Metadata[k]
-		if !awsutil.ValidTag(k) || !awsutil.ValidTag(v) {
+		if !emailutil.ValidTag(k) || !emailutil.ValidTag(v) {
 			return nil, notijet.Invalid(Name, "Metadata "+strconv.Quote(k)+": SES tags allow only ASCII letters, digits, _ and - (up to 256)")
 		}
 		in.EmailTags = append(in.EmailTags, types.MessageTag{Name: aws.String(k), Value: aws.String(v)})

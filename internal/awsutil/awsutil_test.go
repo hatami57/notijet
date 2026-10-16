@@ -30,10 +30,3 @@ func TestClassify(t *testing.T) {
 	assert.Equal(t, "MessageRejected", apiErr.ErrorCode())
 	assert.Equal(t, "bad", apiErr.ErrorMessage())
 }
-
-func TestValidTag(t *testing.T) {
-	assert.True(t, ValidTag("order_id-1"))
-	for _, s := range []string{"", "a b", "a.b", "علی", string(make([]byte, 257))} {
-		assert.False(t, ValidTag(s), s)
-	}
-}

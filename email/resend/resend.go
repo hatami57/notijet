@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/hatami57/notijet"
-	"github.com/hatami57/notijet/internal/awsutil"
 	"github.com/hatami57/notijet/internal/emailutil"
 	"github.com/hatami57/notijet/internal/httpc"
 	"github.com/hatami57/notijet/internal/mimex"
@@ -150,7 +149,7 @@ func (p *Provider) Send(ctx context.Context, msg *notijet.Message) (*notijet.Res
 	}
 	for _, k := range slices.Sorted(maps.Keys(msg.Metadata)) {
 		v := msg.Metadata[k]
-		if !awsutil.ValidTag(k) || !awsutil.ValidTag(v) {
+		if !emailutil.ValidTag(k) || !emailutil.ValidTag(v) {
 			return nil, notijet.Invalid(Name, "Metadata "+strconv.Quote(k)+": Resend tags allow only ASCII letters, digits, _ and - (up to 256)")
 		}
 		req.Tags = append(req.Tags, tag{Name: k, Value: v})
