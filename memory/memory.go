@@ -132,7 +132,11 @@ func (p *Provider) FailWith(fn func(*notijet.Message) error) {
 func (p *Provider) Messages() []*notijet.Message {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return slices.Clone(p.sent)
+	out := make([]*notijet.Message, len(p.sent))
+	for i, msg := range p.sent {
+		out[i] = msg.Clone()
+	}
+	return out
 }
 
 // Last returns the most recently sent message, or nil.
@@ -142,7 +146,7 @@ func (p *Provider) Last() *notijet.Message {
 	if len(p.sent) == 0 {
 		return nil
 	}
-	return p.sent[len(p.sent)-1]
+	return p.sent[len(p.sent)-1].Clone()
 }
 
 // LastTo returns the most recent message addressed to recipient (in To, CC or
@@ -152,7 +156,7 @@ func (p *Provider) LastTo(recipient string) *notijet.Message {
 	defer p.mu.Unlock()
 	for i := len(p.sent) - 1; i >= 0; i-- {
 		if slices.Contains(allRecipients(p.sent[i]), recipient) {
-			return p.sent[i]
+			return p.sent[i].Clone()
 		}
 	}
 	return nil

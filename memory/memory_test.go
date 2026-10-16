@@ -21,7 +21,12 @@ func TestSendRecords(t *testing.T) {
 
 	msg.Template.Params[0].Value = "changed"
 	assert.Equal(t, "1234", p.Last().Template.Get("code"), "a copy is recorded")
-	assert.Same(t, p.Last(), p.LastTo("0935"))
+	assert.Equal(t, p.Last(), p.LastTo("0935"))
+	last := p.Last()
+	last.Template.Params[0].Value = "mutated outside provider"
+	last.To[0] = "mutated outside provider"
+	assert.Equal(t, "1234", p.Last().Template.Get("code"), "inspection returns a copy")
+	assert.Equal(t, "0912", p.Last().To[0], "inspection returns a copy")
 	assert.Nil(t, p.LastTo("0999"))
 	assert.Equal(t, 1, p.Len())
 	assert.Len(t, p.Messages(), 1)
