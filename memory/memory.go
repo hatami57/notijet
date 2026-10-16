@@ -132,6 +132,9 @@ func (p *Provider) FailWith(fn func(*notijet.Message) error) {
 func (p *Provider) Messages() []*notijet.Message {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.sent == nil {
+		return nil
+	}
 	out := make([]*notijet.Message, len(p.sent))
 	for i, msg := range p.sent {
 		out[i] = msg.Clone()
