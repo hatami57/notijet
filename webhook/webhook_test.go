@@ -114,6 +114,10 @@ func TestVerifierRejects(t *testing.T) {
 
 	_, err = v.Verify(httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body)))
 	assert.ErrorIs(t, err, ErrMissingSignature)
+	_, err = v.Verify(nil)
+	assert.ErrorIs(t, err, ErrInvalidRequest)
+	_, err = v.Verify(&http.Request{Header: http.Header{TimestampHeader: {ts}, SignatureHeader: {sig}}})
+	assert.ErrorIs(t, err, ErrInvalidRequest)
 	_, err = Verifier{Secret: []byte("s")}.VerifyBody(strconv.FormatInt(time.Now().Unix(), 10), "sha256=00", body)
 	assert.ErrorIs(t, err, ErrBadSignature, "the real clock is used by default")
 }

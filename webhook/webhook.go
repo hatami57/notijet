@@ -248,6 +248,7 @@ func Sign(secret []byte, timestamp string, body []byte) string {
 
 // Errors a Verifier returns.
 var (
+	ErrInvalidRequest   = errors.New("webhook: request or body is nil")
 	ErrMissingSignature = errors.New("webhook: missing signature or timestamp header")
 	ErrBadSignature     = errors.New("webhook: signature mismatch")
 	ErrStaleTimestamp   = errors.New("webhook: timestamp outside the allowed window")
@@ -286,6 +287,9 @@ type Verifier struct {
 // Verify reads r's body, checks its timestamp and signature, and decodes the
 // payload.
 func (v Verifier) Verify(r *http.Request) (*Payload, error) {
+	if r == nil || r.Body == nil {
+		return nil, ErrInvalidRequest
+	}
 	ts, sig := r.Header.Get(TimestampHeader), r.Header.Get(SignatureHeader)
 	if ts == "" || sig == "" {
 		return nil, ErrMissingSignature
